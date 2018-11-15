@@ -1,0 +1,137 @@
+div
+################## Arithmetic  Operations ######################
+
+"add" : Add
+	# add rt0 rt1 rt2
+	# i.e. rt0 = rt1+rt2
+
+"addi" : Add Immediate
+	# addi rt0 rt1 c4
+	# i.e. rt0 = rt1+4
+
+"sub" : Subtract
+	# sub rt0 rt1 rt2
+	# where rt0=rt1-rt2
+
+"subi" : Subtract Immediate
+	# subi rt0 rt1 c4
+	# where rt0 = rt1-4
+
+"mul" : Multiply
+	# mul rt0 rt1 rt2
+	# i.e. rt0 = rt1*rt2
+
+"div" : Divide
+	# div rt1 rt2
+	# i.e. hi = rt1%rt2, lo = rt1/rt2
+
+"mflo": Move from lo
+	# mflo rt1
+	# i.e. rt1 = lo
+
+"mfhi": Move from hi
+	# mflo rt1
+	# i.e. rt1 = hi
+
+# "cmp" : Compare registers
+# 	# cmp rt0 rt1 rt2
+# 	# i.e. rt0 = abs(sign(rt1 - rt2))
+
+sw
+#################### Load/Store Instructions ####################
+
+"lw" : Load Word
+	# lw rt0 rt1 c40
+	# i.e. rt0 <- M[rt1 + c40]
+
+"lui" : Load Upper Immediate
+	# lui rt0 c60
+	# i.e. rt0 <- (c60 << 16)
+
+"sw" : Store Word
+	# sw rt0 rt1 c40
+	# where M[rt1 + c40] <- rt0
+
+all branch instructions
+#################### Conditional Jump ###########################
+
+"beq" : Branch if equal
+	# be rt0 rt1 label
+	# i.e. branch to label if rt0 = rt1
+
+"bne" : Branch if not equal
+	# bne rt0 rt1 label
+	# i.e. branch to label if rt0 != rt1
+
+"bgt" : Branch if greater than
+	# bgtz rt0 rt1 label
+	# i.e. branch to label if rt0 > rt1
+
+"bge" : Branch if greater than or equal to
+	# bgez rt0 rt1 label
+	# i.e. branch to label if rt0 >= rt1
+
+"blt" : Branch if less than
+	# bltz rt0 rt1 label
+	# i.e. branch to label if rt0 < rt1
+
+"ble" : Branch if less than or equal to
+	# blez rt0 rt1 label
+	# i.e. branch to label if rt0 <= rt1
+
+################### Un-Conditional Jump #########################
+
+"j" : Jump to label
+	# j label
+	# i.e. jump to label
+
+"jal" : Jump to label and link
+	# jal label
+	# i.e. jump to label and store return address in $31
+
+"jr" : Jump to address in register
+	# jr rt0
+	# i.e. jump to address in register rt0
+
+#################### System Call #################################
+
+"syscall":
+	# li $v0 c10; syscall i.e. exit
+	# li $v0 c1; li $a0 5; syscall i.e. print int
+
+################### Pseudo Instructions #########################
+
+"move": Move Register
+	# move rt0 rt1
+	# add rt0 rzero rt1
+	# rt0 <- r1 i.e. load register t1 into register t0
+
+"li": Load Immediate
+	# li rt0 c100
+	# addi rt0 rzero c100
+	# rt0 <- 100 i.e. load 100 into register t0
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
