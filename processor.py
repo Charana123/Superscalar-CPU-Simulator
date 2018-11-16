@@ -8,10 +8,8 @@ def run():
     global PC, OLD_PIPELINE, NEW_PIPELINE, PIPELINE_STALLED, TOTAL_CYCLES, RETIRED_INSTRUCTIONS
     print("PC: %d" % PC)
     while True:
-        fetch()
-        print("inst: %s" % str(NEW_PIPELINE["decode"]))
-        decode()
-        print("dec_inst: %s" % str(NEW_PIPELINE["execute"]))
+        issue()
+        print("issue_inst: %s" % str(NEW_PIPELINE["execute"]))
         execute()
         print("side_affects: %s" % str(NEW_PIPELINE["writeback"]))
         should_exit = evaluateSideAffect()
@@ -23,7 +21,6 @@ def run():
             return
         OLD_PIPELINE = dict(NEW_PIPELINE)
         NEW_PIPELINE = {
-            "decode": None,
             "execute": None,
             "writeback": None
         }
@@ -34,15 +31,15 @@ def run():
             print("INCREMENT")
         print("PC: %d" % PC)
 
-def fetch():
+def issue():
     global PROGRAM, PC, NEW_PIPELINE, PIPELINE_STALLED, REGISTER_ADDRESS_STACK_FULL, REGISTER_ADDRESS_STACK, REGISTER_ADDRESS_STACK_MAX, JAL_INST_ADDR
 
     if PIPELINE_STALLED:
-        NEW_PIPELINE["decode"] = None
+        NEW_PIPELINE["execute"] = None
         return
     else:
         inst = dict(PROGRAM[PC])
-        NEW_PIPELINE["decode"] = dict(PROGRAM[PC])
+        NEW_PIPELINE["execute"] = dict(PROGRAM[PC])
 
         # Resolve unconditional branches
         if inst["opcode"] in ["j", "jal"]:
@@ -61,7 +58,7 @@ def fetch():
                 PIPELINE_STALLED = True
             else:
                 PC = REGISTER_ADDRESS_STACK.pop() + 1
-                NEW_PIPELINE["decode"] = dict(PROGRAM[PC])
+                NEW_PIPELINE["execute"] = dict(PROGRAM[PC])
                 print("pop", inst)
 
         # Speculative branching for conditional branches
@@ -69,33 +66,6 @@ def fetch():
             PIPELINE_STALLED = True
         if inst["opcode"] == "syscall":
             PIPELINE_STALLED = True
-
-
-def decode():
-
-    global OLD_PIPELINE, NEW_PIPELINE
-
-    inst = OLD_PIPELINE["decode"]
-    if inst == None:
-        return
-
-    # Transform pseduo-instructions
-    if inst["opcode"] == "move":
-        inst["opcode"] = "add"
-        inst["arg3"] = "$zero"
-    if inst["opcode"] == "li":
-        inst["opcode"] = "addi"
-        inst["arg3"] = "$zero"
-    if inst["opcode"] == "mfhi":
-        inst["opcode"] = "add"
-        inst["arg2"] = "$zero"
-        inst["arg3"] = "$hi"
-    if inst["opcode"] == "mflo":
-        inst["opcode"] = "add"
-        inst["arg2"] = "$zero"
-        inst["arg3"] = "$lo"
-
-    NEW_PIPELINE["execute"] = inst
 
 def execute():
     global PC, OLD_PIPELINE, NEW_PIPELINE, PIPELINE_EXECUTE_REGISTER, PIPELINE_STALLED
@@ -260,12 +230,10 @@ def runProgram(filename):
     REGISTER_FILE = [0] * 34
     STACK = [0] * 100
     OLD_PIPELINE = {
-        "decode": None,
         "execute": None,
         "writeback": None
     }
     NEW_PIPELINE = {
-        "decode": None,
         "execute": None,
         "writeback": None
     }

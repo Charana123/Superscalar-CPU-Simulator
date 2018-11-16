@@ -64,9 +64,28 @@ def readProgram(filename):
                 inst["arg1"]= labels[inst["arg1"]]
         return inst
 
+    def transformPseudoInstructions(inst):
+				if isinstance(inst, dict):
+					if inst["opcode"] == "move":
+							inst["opcode"] = "add"
+							inst["arg3"] = "$zero"
+					if inst["opcode"] == "li":
+							inst["opcode"] = "addi"
+							inst["arg3"] = "$zero"
+					if inst["opcode"] == "mfhi":
+							inst["opcode"] = "add"
+							inst["arg2"] = "$zero"
+							inst["arg3"] = "$hi"
+					if inst["opcode"] == "mflo":
+							inst["opcode"] = "add"
+							inst["arg2"] = "$zero"
+							inst["arg3"] = "$lo"
+				return inst
+
     # for label, insts in program.iteritems():
     program = map(toInstruction, lines)
     program = map(resolveLabels, program)
+    program = map(transformPseudoInstructions, program)
     # program[label] = insts
 
     return program
