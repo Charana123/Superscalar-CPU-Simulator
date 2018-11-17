@@ -13,8 +13,8 @@ subi $t0 $t0 c15
 # t0 = -5; t1 = 5; t2 = 15
 mul $t0 $t0 $t1
 # t0 = -25; t1 = 5; t2 = 15
-div $t2 $t1
-mflo $t2
+# div $t2 $t1
+# mflo $t2
 # t0 = -25; t1 = 5; t2 = 3
 move $t1 $t2
 # t0 = -25; t1 = 3; t2 = 3
