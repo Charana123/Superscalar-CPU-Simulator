@@ -1,10 +1,8 @@
 import sys
 import assembler
+from functional import first
 from execution_units import ALU, LSU, BU
-import consts
-
-REGISTER_MNEMONICS = consts.REGISTER_MNEMONICS
-first = lambda p, xs: reduce(lambda acc, x: x if (p(x) and acc is None) else acc, xs, None)
+from components import InstructionQueue, ReorderBuffer, REGISTER_MNEMONICS
 
 def run():
     global PROGRAM, PC, REGISTER_FILE, STACK, OLD_PIPELINE, NEW_PIPELINE, PIPELINE_EXECUTE_REGISTER, REGISTER_ADDRESS_STACK, REGISTER_ADDRESS_STACK_MAX, PIPELINE_STALLED, REGISTER_ADDRESS_STACK_FULL, JAL_INST_ADDR, RETIRED_INSTRUCTIONS, TOTAL_CYCLES, ALUs, BUs, LSUs, ROB
@@ -35,97 +33,85 @@ def run():
             print("INCREMENT")
         print("PC: %d" % PC)
 
-def issue():
+
+def fetch():
     global PROGRAM, PC, REGISTER_FILE, STACK, OLD_PIPELINE, NEW_PIPELINE, PIPELINE_EXECUTE_REGISTER, REGISTER_ADDRESS_STACK, REGISTER_ADDRESS_STACK_MAX, PIPELINE_STALLED, REGISTER_ADDRESS_STACK_FULL, JAL_INST_ADDR, RETIRED_INSTRUCTIONS, TOTAL_CYCLES, ALUs, BUs, LSUs, ROB
 
-    inst = dict(PROGRAM[PC])
     if PIPELINE_STALLED:
+            return
+    if PC != -1:
+            inst = dict(PROGRAM[PC])
+            NEW_PIPELINE["decode"] = dict(PROGRAM[PC])
+            # Speculative branching for conditional branches, stall atm
+            if inst["opcode"] in ["beq", "bne", "bgt", "bge", "blt", "ble"]:
+                            PIPELINE_STALLED = True
+            if inst["opcode"] == "syscall":
+                            PIPELINE_STALLED = True
+
+    lookahead = dict(PROGRAM[PC + 1])
+
+    # Resolve unconditional branches early in the pipeline using a lookahead
+    if lookahead["opcode"] in ["j", "jal"]:
+        if lookahead["opcode"] == "jal":
+            JAL_INST_ADDR = PC + 1
+            if len(REGISTER_ADDRESS_STACK) < REGISTER_ADDRESS_STACK_MAX:
+                REGISTER_ADDRESS_STACK.append(PC + 1)
+                print("REGISTER_ADDRESS_STACK = %s" % str(REGISTER_ADDRESS_STACK))
+                REGISTER_ADDRESS_STACK_FULL = False
+            else:
+                REGISTER_ADDRESS_STACK_FULL = True
+        else:
+            RETIRED_INSTRUCTIONS += 1
+        PC = inst["arg1"]
+
+    # Resolve target address (TA) from BTAC
+    # TODO
+
+
+def decode():
+    global PROGRAM, PC, REGISTER_FILE, STACK, OLD_PIPELINE, NEW_PIPELINE, PIPELINE_EXECUTE_REGISTER, REGISTER_ADDRESS_STACK, REGISTER_ADDRESS_STACK_MAX, PIPELINE_STALLED, REGISTER_ADDRESS_STACK_FULL, JAL_INST_ADDR, RETIRED_INSTRUCTIONS, TOTAL_CYCLES, ALUs, BUs, LSUs, ROB
+
+    # Decodes byte instruction to control signals for the rest of the pipeline
+    # Already decoded (by assembler)
+
+    inst = OLD_PIPELINE["decode"]
+    # Resolve RETURN JUMP instructions that requires register lookup (so can only be performed during decode)
+    # Do not push to Instruction Queue, wait for next fetch cycle where it the jump return target will be fetched
+    if inst["opcode"] == "jr":
+        if REGISTER_ADDRESS_STACK_FULL:
+            PIPELINE_STALLED = True
+        else:
+            PC = REGISTER_ADDRESS_STACK.pop() + 1
+            RETIRED_INSTRUCTIONS += 1
+    else:
+        # Push to instruction queue
+        INSTRUCTION_QUEUE.push(inst)
+
+
+def issue():
+
+    inst = INSTRUCTION_QUEUE.peek()
+    # Abort is Instruction Queue in empty
+    if inst is None:
         return
-    elif (inst["opcode"] in ["add", "addi", "sub", "subi", "syscall", "mul", "div"] and len(filter(lambda alu: not alu.OCCUPIED, ALUs)) == 0) or \
+
+    # Abort is no execution unit is free
+    if (inst["opcode"] in ["add", "addi", "sub", "subi", "syscall", "mul", "div"] and len(filter(lambda alu: not alu.OCCUPIED, ALUs)) == 0) or \
          (inst["opcode"] in ["lw", "sw"] and len(filter(lambda lsu: not lsu.OCCUPIED, LSUs)) == 0) or \
          (inst["opcode"] in ["beq", "bne", "bgt", "bge", "blt", "ble", "jr", "jal"] and len(filter(lambda bu: not bu.OCCUPIED, BUs)) == 0):
-            PIPELINE_STALLED = True
             return
-    else:
-        NEW_PIPELINE["execute"] = dict(PROGRAM[PC])
 
-        # Resolve unconditional branches
-        if inst["opcode"] in ["j", "jal"]:
-            if inst["opcode"] == "jal":
-                JAL_INST_ADDR = PC
-                if len(REGISTER_ADDRESS_STACK) < REGISTER_ADDRESS_STACK_MAX:
-                    REGISTER_ADDRESS_STACK.append(PC)
-                    print("REGISTER_ADDRESS_STACK = %s" %str(REGISTER_ADDRESS_STACK))
-                    REGISTER_ADDRESS_STACK_FULL = False
-                else:
-                    REGISTER_ADDRESS_STACK_FULL = True
-            else:
-                RETIRED_INSTRUCTIONS += 1
-            PC = inst["arg1"]
-        if inst["opcode"] == "jr":
-            if REGISTER_ADDRESS_STACK_FULL:
-                print("PIPELINE STALLED")
-                PIPELINE_STALLED = True
-            else:
-                PC = REGISTER_ADDRESS_STACK.pop() + 1
-                RETIRED_INSTRUCTIONS += 1
-                NEW_PIPELINE["execute"] = dict(PROGRAM[PC])
-                print("pop", inst)
+    INSTRUCTION_QUEUE.pop()
+    NEW_PIPELINE["execute"] = inst
 
-        # Speculative branching for conditional branches
-        if inst["opcode"] in ["beq", "bne", "bgt", "bge", "blt", "ble"]:
-            PIPELINE_STALLED = True
-        if inst["opcode"] == "syscall":
-            PIPELINE_STALLED = True
-
-def readReg(arg):
-    global PROGRAM, PC, REGISTER_FILE, STACK, OLD_PIPELINE, NEW_PIPELINE, PIPELINE_EXECUTE_REGISTER, REGISTER_ADDRESS_STACK, REGISTER_ADDRESS_STACK_MAX, PIPELINE_STALLED, REGISTER_ADDRESS_STACK_FULL, JAL_INST_ADDR, RETIRED_INSTRUCTIONS, TOTAL_CYCLES, ALUs, BUs, LSUs, ROB
-    print("PIPELINE_EXECUTE_REGISTER", PIPELINE_EXECUTE_REGISTER)
-    for pipeline_reg in PIPELINE_EXECUTE_REGISTER:
-        if pipeline_reg[0][0] == '$':
-            if pipeline_reg[0] == arg:
-                return pipeline_reg[1]
-    reg_num = REGISTER_MNEMONICS[arg]
-    return REGISTER_FILE[reg_num]
-
-def readMem(address):
-    global PROGRAM, PC, REGISTER_FILE, STACK, OLD_PIPELINE, NEW_PIPELINE, PIPELINE_EXECUTE_REGISTER, REGISTER_ADDRESS_STACK, REGISTER_ADDRESS_STACK_MAX, PIPELINE_STALLED, REGISTER_ADDRESS_STACK_FULL, JAL_INST_ADDR, RETIRED_INSTRUCTIONS, TOTAL_CYCLES, ALUs, BUs, LSUs, ROB
-    for pipeline_reg in PIPELINE_EXECUTE_REGISTER:
-        if pipeline_reg[0][0] == 'm':
-            if int(pipeline_reg[0][1:]) == address:
-                return pipeline_reg[1]
-    return STACK[address]
-
-def parseMnemonics(inst, args):
-    for arg_num in args:
-        arg = inst[arg_num]
-        if arg != -1 and isinstance(arg, str):
-            if arg[0] == '$':
-                inst[arg_num] = readReg(arg)
-            if arg[0] == 'c':
-                inst[arg_num] = int(arg[1:])
-
-class ReorderBuffer(object):
-    def __init__(self):
-        self.inorder_insts = []
-
-    # Add the UUID of the Execution Unit that was given the fetched instruction
-    def add_inst(self, tag):
-        self.inorder_insts.append(tag)
-
-    # Get UUID of Execution unit with the next instruction to be retired in-order
-    def inst_to_retire(self):
-        return self.inorder_insts[0] if len(self.inorder_insts) > 0 else None
-
-    # Retire next instruction to be retired in-order
-    def retire_inst(self):
-        self.inorder_insts = self.inorder_insts[1:]
+def dispatch():
+    pass
 
 def execute():
     global PROGRAM, PC, REGISTER_FILE, STACK, OLD_PIPELINE, NEW_PIPELINE, PIPELINE_EXECUTE_REGISTER, REGISTER_ADDRESS_STACK, REGISTER_ADDRESS_STACK_MAX, PIPELINE_STALLED, REGISTER_ADDRESS_STACK_FULL, JAL_INST_ADDR, RETIRED_INSTRUCTIONS, TOTAL_CYCLES, ALUs, BUs, LSUs, ROB
 
     inst = OLD_PIPELINE["execute"]
-    if inst == None:
+    if inst is None:
         NEW_PIPELINE["writeback"] = None
     else:
         # Evaluate registers and consts
@@ -172,8 +158,7 @@ def execute():
         side_affects = NEW_PIPELINE["writeback"]
         if side_affects is not None:
             print("side_affects", side_affects)
-            shouldCommit = lambda side_affect: side_affect[0] == "register" or side_affect[0] == "memory"
-            side_affects = filter(shouldCommit, side_affects)
+            side_affects = filter(lambda side_affect: side_affect[0] == "register" or side_affect[0] == "memory", side_affects)
             print("side_affects", side_affects)
             PIPELINE_EXECUTE_REGISTER = []
             for side_affect in side_affects:
@@ -188,7 +173,7 @@ def evaluateSideAffect():
 
     global PROGRAM, PC, REGISTER_FILE, STACK, OLD_PIPELINE, NEW_PIPELINE, PIPELINE_EXECUTE_REGISTER, REGISTER_ADDRESS_STACK, REGISTER_ADDRESS_STACK_MAX, PIPELINE_STALLED, REGISTER_ADDRESS_STACK_FULL, JAL_INST_ADDR, RETIRED_INSTRUCTIONS, TOTAL_CYCLES, ALUs, BUs, LSUs, ROB
     side_affects = OLD_PIPELINE["writeback"]
-    if side_affects == None:
+    if side_affects is None:
         return
     RETIRED_INSTRUCTIONS += 1
 
@@ -212,7 +197,6 @@ def evaluateSideAffect():
         if ttype == "stalled":
             PIPELINE_STALLED = res
 
-
     for side_affect in side_affects:
         print("side_affect", side_affect)
         ttype = side_affect[0]
@@ -223,13 +207,14 @@ def evaluateSideAffect():
             writeBack(side_affect)
     return False
 
+
 def runProgram(filename):
-    global PROGRAM, PC, REGISTER_FILE, STACK, OLD_PIPELINE, NEW_PIPELINE, PIPELINE_EXECUTE_REGISTER, REGISTER_ADDRESS_STACK, REGISTER_ADDRESS_STACK_MAX, PIPELINE_STALLED, REGISTER_ADDRESS_STACK_FULL, JAL_INST_ADDR, RETIRED_INSTRUCTIONS, TOTAL_CYCLES, ALUs, BUs, LSUs, ROB
+    global PROGRAM, PC, REGISTER_FILE, STACK, OLD_PIPELINE, NEW_PIPELINE, PIPELINE_EXECUTE_REGISTER, REGISTER_ADDRESS_STACK, REGISTER_ADDRESS_STACK_MAX, PIPELINE_STALLED, REGISTER_ADDRESS_STACK_FULL, JAL_INST_ADDR, RETIRED_INSTRUCTIONS, TOTAL_CYCLES, ALUs, BUs, LSUs, ROB, INSTRUCTION_QUEUE
     PROGRAM = assembler.readProgram(filename)
 
     RETIRED_INSTRUCTIONS = 0
     TOTAL_CYCLES = 0
-    PC = 0
+    PC = -1
     REGISTER_FILE = [0] * 34
     STACK = [0] * 100
     OLD_PIPELINE = {
@@ -249,9 +234,12 @@ def runProgram(filename):
     ALUs = [ALU(), ALU()]
     BUs = [BU()]
     LSUs = [LSU()]
+    RSs = 
     ROB = ReorderBuffer()
+    INSTRUCTION_QUEUE = InstructionQueue()
     print(PROGRAM)
     run()
+
 
 if __name__ == "__main__":
     runProgram(sys.argv[1])

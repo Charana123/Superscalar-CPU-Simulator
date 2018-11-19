@@ -11,8 +11,8 @@ class BaseUnit(object):
         self.CYCLES_PER_OPERATION = None
         self.uuid = str(uuid.uuid4())
 
-    def submit(self, inst):
-        print("super submit")
+    def dispatch(self, inst):
+        print("super dispatch")
         self.inputt = inst
         self.OCCUPIED = True
         self.CYCLES = 0
@@ -32,15 +32,14 @@ class ALU(BaseUnit):
     def __init__(self):
         super(ALU, self).__init__()
 
-    def submit(self, inst):
-        super(ALU, self).submit(inst)
+    def dispatch(self, inst):
+        super(ALU, self).dispatch(inst)
         if inst["opcode"] in ["add", "addi", "sub", "subi", "lui", "syscall"]:
           self.CYCLES_PER_OPERATION = 1
         elif inst["opcode"] == "mul":
           self.CYCLES_PER_OPERATION = 3
         elif inst["opcode"] == "div":
           self.CYCLES_PER_OPERATION = 10
-        self.step()
 
     def step(self):
         print("step = %s" % self.uuid)
@@ -78,11 +77,10 @@ class LSU(BaseUnit):
     def __init__(self):
       super(LSU, self).__init__()
 
-    def submit(self, inst):
-        super(LSU, self).submit(inst)
+    def dispatch(self, inst):
+        super(LSU, self).dispatch(inst)
         if inst["opcode"] in ["lw", "sw"]:
           self.CYCLES_PER_OPERATION = 3
-        self.step()
 
     def step(self):
         if not self.OCCUPIED:
@@ -103,11 +101,10 @@ class BU(BaseUnit):
     def __init__(self):
         super(BU, self).__init__()
 
-    def submit(self, inst):
-        super(BU, self).submit(inst)
+    def dispatch(self, inst):
+        super(BU, self).dispatch(inst)
         if self.inputt["opcode"] in ["beq", "bne", "bgt", "bge", "blt", "ble", "jr", "jal"]:
             self.CYCLES_PER_OPERATION = 1
-        self.step()
 
     def step(self):
         if not self.OCCUPIED:
@@ -140,7 +137,30 @@ class BU(BaseUnit):
                 print("invalid branch-jump instruction")
                 exit()
 
+def readReg(arg):
+    global PROGRAM, PC, REGISTER_FILE, STACK, OLD_PIPELINE, NEW_PIPELINE, PIPELINE_EXECUTE_REGISTER, REGISTER_ADDRESS_STACK, REGISTER_ADDRESS_STACK_MAX, PIPELINE_STALLED, REGISTER_ADDRESS_STACK_FULL, JAL_INST_ADDR, RETIRED_INSTRUCTIONS, TOTAL_CYCLES, ALUs, BUs, LSUs, ROB
+    print("PIPELINE_EXECUTE_REGISTER", PIPELINE_EXECUTE_REGISTER)
+    for pipeline_reg in PIPELINE_EXECUTE_REGISTER:
+        if pipeline_reg[0][0] == '$':
+            if pipeline_reg[0] == arg:
+                return pipeline_reg[1]
+    reg_num = REGISTER_MNEMONICS[arg]
+    return REGISTER_FILE[reg_num]
 
 
+def readMem(address):
+    global PROGRAM, PC, REGISTER_FILE, STACK, OLD_PIPELINE, NEW_PIPELINE, PIPELINE_EXECUTE_REGISTER, REGISTER_ADDRESS_STACK, REGISTER_ADDRESS_STACK_MAX, PIPELINE_STALLED, REGISTER_ADDRESS_STACK_FULL, JAL_INST_ADDR, RETIRED_INSTRUCTIONS, TOTAL_CYCLES, ALUs, BUs, LSUs, ROB
+    for pipeline_reg in PIPELINE_EXECUTE_REGISTER:
+        if pipeline_reg[0][0] == 'm':
+            if int(pipeline_reg[0][1:]) == address:
+                return pipeline_reg[1]
+    return STACK[address]
 
-
+def parseMnemonics(inst, args):
+    for arg_num in args:
+        arg = inst[arg_num]
+        if arg != -1 and isinstance(arg, str):
+            if arg[0] == '$':
+                inst[arg_num] = readReg(arg)
+            if arg[0] == 'c':
+                inst[arg_num] = int(arg[1:])
