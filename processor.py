@@ -1,8 +1,8 @@
 import sys
 import assembler
-from functional import first
+from functional import first, anyy
 from execution_units import ALU, LSU, BU
-from components import InstructionQueue, ReorderBuffer, REGISTER_MNEMONICS
+from components import InstructionQueue, ReseravationStation, RegisterAliasTable, LoadStoreQueue, ReorderBuffer, REGISTER_MNEMONICS, CommonDataBus
 
 def run():
     global PROGRAM, PC, REGISTER_FILE, STACK, OLD_PIPELINE, NEW_PIPELINE, PIPELINE_EXECUTE_REGISTER, REGISTER_ADDRESS_STACK, REGISTER_ADDRESS_STACK_MAX, PIPELINE_STALLED, REGISTER_ADDRESS_STACK_FULL, JAL_INST_ADDR, RETIRED_INSTRUCTIONS, TOTAL_CYCLES, ALUs, BUs, LSUs, ROB
@@ -28,8 +28,8 @@ def run():
         TOTAL_CYCLES += 1
         if not PIPELINE_STALLED:
             PC += 1
-            for exec_unit in ALUs + LSUs + BUs:
-                exec_unit.step()
+#            for exec_unit in ALUs + LSUs + BUs:
+#                exec_unit.step()
             print("INCREMENT")
         print("PC: %d" % PC)
 
@@ -105,111 +105,41 @@ def issue():
     NEW_PIPELINE["execute"] = inst
 
 def dispatch():
-    pass
+    # go through reservation stations and call the dipatch instruction
+    for rs in [ALU_RS, LSU_RS, BU_RS]:
+        rs.dispatch(RAT)
 
 def execute():
     global PROGRAM, PC, REGISTER_FILE, STACK, OLD_PIPELINE, NEW_PIPELINE, PIPELINE_EXECUTE_REGISTER, REGISTER_ADDRESS_STACK, REGISTER_ADDRESS_STACK_MAX, PIPELINE_STALLED, REGISTER_ADDRESS_STACK_FULL, JAL_INST_ADDR, RETIRED_INSTRUCTIONS, TOTAL_CYCLES, ALUs, BUs, LSUs, ROB
 
-    inst = OLD_PIPELINE["execute"]
-    if inst is None:
+    # Step all OCCUPIED function units
+    inuse_fus = filter(lambda fu: fu.OCCUPIED and not fu.FINISHED, ALUs + LSUs + BUs)
+    for inuse_fs in inuse_fus:
+        inuse_fu.step()
+
+    # Set to the writeback stage a set of instructions that can write its
+    # computation to the ROB
+    writeback_fus = filter(lambda fu: fu.OCCUPIED, ALUs + LSUs)
+    writebacks = [ fu.output for fu in writeback_fus ]
+    if writebacks == []:
         NEW_PIPELINE["writeback"] = None
-    else:
-        # Evaluate registers and consts
-        parseMnemonics(inst, ["arg2", "arg3"])
-        print("parsed_dec_exec", inst)
+    NEW_PIPELINE["writeback"] = writebacks
 
-        # Submit instruction to suitable Execution Unit
-        if inst["opcode"] in ["add", "addi", "sub", "subi", "lui", "syscall", "mul", "div"]:
-            unOccupiedALUs = filter(lambda alu: not alu.OCCUPIED, ALUs)
-            print(unOccupiedALUs)
-            if len(unOccupiedALUs) != 0:
-                unOccupiedALUs[0].submit(inst)
-                print("submit ALU")
-                ROB.add_inst(unOccupiedALUs[0].uuid)
-                print("unOccupiedALUs[0].uuid", unOccupiedALUs[0].uuid)
+def writeback():
 
-        if inst["opcode"] in ["lw", "sw"]:
-            unOccupiedLSUs = filter(lambda lsu: not lsu.OCCUPIED, LSUs)
-            if len(unOccupiedLSUs) != 0:
-                unOccupiedLSUs[0].submit(inst)
-                print("submit LSU")
-                ROB.add_inst(unOccupiedLSUs[0].uuid)
-                print("unOccupiedLSUs[0].uuid", unOccupiedLSUs[0].uuid)
+    # Takes a list of writebacks, each writeback (instr_tag, ttype, dest, res)
+    # Transports over the CDB
+    writeback = OLD_PIPELINE["writeback"]
+    CDB.writeback(writeback)
 
-        if inst["opcode"] in ["beq", "bne", "bgt", "bge", "blt", "ble", "jr", "jal"]:
-            unOccupiedBUs = filter(lambda bu: not bu.OCCUPIED, BUs)
-            if len(unOccupiedBUs) != 0:
-                unOccupiedBUs[0].submit(inst)
-                print("submit BU")
-                ROB.add_inst(unOccupiedBUs[0].uuid)
-                print("unOccupiedBUs[0].uuid", unOccupiedBUs[0].uuid)
+def commit():
 
-    # Check this cycle if an instruction can be retired
-    tag = ROB.inst_to_retire()
-    print("tag", tag)
-    exec_unit_with_tag = first(lambda exec_unit: exec_unit.uuid == tag and len(exec_unit.output) > 0, ALUs + LSUs + BUs)
-    print("exec_unit_with_tag", exec_unit_with_tag)
-    if exec_unit_with_tag is not None:
-        print("exec_unit_with_tag.output", exec_unit_with_tag.output)
-        print("one")
-        ROB.retire_inst()
-        NEW_PIPELINE["writeback"] = exec_unit_with_tag.getOutput()
-        # Store result of register-write/memory-store in pipeline registers
-        side_affects = NEW_PIPELINE["writeback"]
-        if side_affects is not None:
-            print("side_affects", side_affects)
-            side_affects = filter(lambda side_affect: side_affect[0] == "register" or side_affect[0] == "memory", side_affects)
-            print("side_affects", side_affects)
-            PIPELINE_EXECUTE_REGISTER = []
-            for side_affect in side_affects:
-                (ttype, dest, res) = side_affect
-                if ttype == "register":
-                    PIPELINE_EXECUTE_REGISTER.append((dest, res))
-                if ttype == "memory":
-                    PIPELINE_EXECUTE_REGISTER.append(("m" + str(dest), res))
-
-
-def evaluateSideAffect():
-
-    global PROGRAM, PC, REGISTER_FILE, STACK, OLD_PIPELINE, NEW_PIPELINE, PIPELINE_EXECUTE_REGISTER, REGISTER_ADDRESS_STACK, REGISTER_ADDRESS_STACK_MAX, PIPELINE_STALLED, REGISTER_ADDRESS_STACK_FULL, JAL_INST_ADDR, RETIRED_INSTRUCTIONS, TOTAL_CYCLES, ALUs, BUs, LSUs, ROB
-    side_affects = OLD_PIPELINE["writeback"]
-    if side_affects is None:
-        return
-    RETIRED_INSTRUCTIONS += 1
-
-    def execSysCall(side_affect):
-        ttype, syscall_ttype = side_affect
-        if syscall_ttype == "exit":
-            return True
-
-    def writeBack(side_affect):
-        global PROGRAM, PC, REGISTER_FILE, STACK, OLD_PIPELINE, NEW_PIPELINE, PIPELINE_EXECUTE_REGISTER, REGISTER_ADDRESS_STACK, REGISTER_ADDRESS_STACK_MAX, PIPELINE_STALLED, REGISTER_ADDRESS_STACK_FULL, JAL_INST_ADDR, RETIRED_INSTRUCTIONS, TOTAL_CYCLES, ALUs, BUs, LSUs, ROB
-        (ttype, dest, res) = side_affect
-        if ttype == "register":
-            reg_num = REGISTER_MNEMONICS[dest]
-            REGISTER_FILE[reg_num] = res
-            print("REGISTER_FILE[%d] = %d" % (reg_num, res))
-        if ttype == "memory":
-            STACK[dest] = res
-        if ttype == "pc":
-            print("res", res)
-            PC = res
-        if ttype == "stalled":
-            PIPELINE_STALLED = res
-
-    for side_affect in side_affects:
-        print("side_affect", side_affect)
-        ttype = side_affect[0]
-        if ttype == "syscall":
-            if execSysCall(side_affect):
-                return True
-        else:
-            writeBack(side_affect)
-    return False
+    # Find next instruction to be retired (comparing the instruction sequence id)
+    ROB.commit_ptr = LSQ.commit_ptr
 
 
 def runProgram(filename):
-    global PROGRAM, PC, REGISTER_FILE, STACK, OLD_PIPELINE, NEW_PIPELINE, PIPELINE_EXECUTE_REGISTER, REGISTER_ADDRESS_STACK, REGISTER_ADDRESS_STACK_MAX, PIPELINE_STALLED, REGISTER_ADDRESS_STACK_FULL, JAL_INST_ADDR, RETIRED_INSTRUCTIONS, TOTAL_CYCLES, ALUs, BUs, LSUs, ROB, INSTRUCTION_QUEUE
+    global PROGRAM, PC, REGISTER_FILE, STACK, OLD_PIPELINE, NEW_PIPELINE, PIPELINE_EXECUTE_REGISTER, REGISTER_ADDRESS_STACK, REGISTER_ADDRESS_STACK_MAX, PIPELINE_STALLED, REGISTER_ADDRESS_STACK_FULL, JAL_INST_ADDR, RETIRED_INSTRUCTIONS, TOTAL_CYCLES, ALUs, BUs, LSUs, ROB, INSTRUCTION_QUEUE, RAT, ALU_RS, BU_RS, LSU_RS, CDB, LSQ
     PROGRAM = assembler.readProgram(filename)
 
     RETIRED_INSTRUCTIONS = 0
@@ -231,12 +161,14 @@ def runProgram(filename):
     REGISTER_ADDRESS_STACK_FULL = False
     PIPELINE_STALLED = False
     JAL_INST_ADDR = None
-    ALUs = [ALU(), ALU()]
-    BUs = [BU()]
-    LSUs = [LSU()]
-    RSs = 
+    ALUs = [ALU(), ALU()]; ALU_RS = ReseravationStation(ALUs, size=5)
+    BUs = [BU()]; BU_RS = ReseravationStation(BUs, size=5)
+    LSUs = [LSU()]; LSU_RS = ReseravationStation(LSUs, size=5)
+    RAT = RegisterAliasTable()
     ROB = ReorderBuffer()
+    LSQ = LoadStoreQueue()
     INSTRUCTION_QUEUE = InstructionQueue()
+    CDB = CommonDataBus()
     print(PROGRAM)
     run()
 
