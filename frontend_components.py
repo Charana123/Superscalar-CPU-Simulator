@@ -1,23 +1,27 @@
-from functional import first, anyy
+from util import toString
+from functional import first, anyy, alll, generate
+from consts import REGISTER_MNEMONICS
+from consts import RTYPE_OPCODES, LOAD_OPCODES, STORE_OPCODES, COND_BRANCH_OPCODES
 
-REGISTER_MNEMONICS = {
-    "$zero": 0,
-    "$at": 1,
-    "$v0": 2, "$v1": 3, # return value of sub-routine
-    "$a0": 4, "$a1": 5, "$a2": 6, "$a3": 7, # arguments to sub-routine
-    "$t0": 8, "$t1": 9, "$t2": 10, "$t3": 11, "$t4": 12, "$t5": 13,
-    "$t6": 14, "$t7": 15, # temporary registers (not preserved across function calls)
-    "$s0": 16, "$s1": 17, "$s2": 18, "$s3": 19, "$s4": 20, "$s5": 21, "$s6": 22, "$s7": 23, # saved registers (preserved accross function calls i.e. stored on stack)
-    "$t8": 24, "$t9": 25, "$k0": 26, "$k1": 27, "$gp": 28, # global pointer (points to start "data" segment in memory
-    "$sp": 29, # stack pointer
-    "$fp": 30, # frame pointer (used to store prior value of $sp before stack frame is pushed)
-    "$ra": 31, # return address (stores PC on jump and link instruction i.e. jal)
-    "$hi": 32, "$lo": 33,
-}
+
+def branch_predictor(branch_inst, STATE):
+    # Always speculatively take conditional branches
+    taken = True
+    STATE.SpeculativelyTaken.append(taken)
+    return taken
+    # Implement Static branching i.e. backward branches always taken, forward branches never taken
+    # Implement Dynamic branching i.e. BTAC and 2-bit branch predictor
+
 
 class InstructionQueue(object):
     def __init__(self):
+        self.flush()
+
+    def flush(self):
         self.instruction_queue = []
+
+    def __str__(self):
+        return toString(self.instruction_queue)
 
     def peek(self):
         if len(self.instruction_queue) > 0:
@@ -29,6 +33,7 @@ class InstructionQueue(object):
     def push(self, inst):
         self.instruction_queue.append(inst)
 
+
 class RegisterAliasTable(object):
 
     class RegisterAliasTableEntry(object):
@@ -36,143 +41,205 @@ class RegisterAliasTable(object):
         def __init__(self):
             self.Valid = True
             self.Pending = False
-            self.ROBi = None
+            self.inst_seq_id = None
+
+        def __str__(self):
+            return toString({
+                "valid": self.Valid,
+                "pending": self.Pending,
+                "inst_seq_id": self.inst_seq_id
+            })
+
+        def __repr__(self):
+            return self.__str__()
+
+        def issue(self, inst_seq_id):
+            self.Valid = False
+            self.Pending = True
+            self.inst_seq_id = inst_seq_id
+
+        def commit(self):
+            # RAT entry becomes valid when ROB entry is commited
+            # If valid is true, reservation stations can read directly
+            self.Valid = True
+
+        def writeback(self):
+            # RAT entry, pending becomes false when value commited to ROB entry
+            # if pending is false, reservation stations can read directly from ROB
+            self.Pending = False
 
     def __init__(self):
-        global REGISTER_MNEMONICS
-        self.RAT = dict([ (key, self.RegisterAliasTableEntry()) for key in REGISTER_MNEMONICS.keys()])
+        self.flush()
+
+    def __str__(self):
+        invalid_entries = filter(lambda (key, val): not val.Valid, self.entries.items())
+        return toString(invalid_entries)
+
+    def flush(self):
+        self.entries = dict([(key, self.RegisterAliasTableEntry()) for key in REGISTER_MNEMONICS.keys()])
 
     def __getitem__(self, key):
-        return self.RAT[key]
+        return self.entries[key]
 
-    def __setitem__(self, key, value):
-        self.RAT[key] = value
+    def issue(self, inst):
+        if inst["opcode"] in RTYPE_OPCODES:
+            dest_reg = inst["arg1"]
+            inst_seq_id = inst["inst_seq_id"]
+            self.entries[dest_reg].issue(inst_seq_id)
+
+    def commit(self, inst_seq_id):
+        dependant_entries = [entry for entry in self.entries.items() if entry[1].inst_seq_id == inst_seq_id]
+        for entry in dependant_entries:
+            entry[1].commit()
+
+    def writeback(self, inst_seq_id):
+        dependant_entries = [entry for entry in self.entries.items() if entry[1].inst_seq_id == inst_seq_id]
+        for entry in dependant_entries:
+            entry[1].writeback()
+
 
 class ReseravationStation(object):
-
     class ReservationStationEntry(object):
         def __init__(self):
-            # TODO self.tag = str(uuid.uuid4())  # Unique identifier for RS Entry
             self.inst_seq_id = None  # Cycle the instruction was issued (for oldest dispatched first heuristic)
             self.Busy = False
-            self.Speculative = False
-            self.Op = None; self.Dest = None
-            # ROB Entries corresponding to pending (in-flight in the pipeline) instructions for source operands
-            self.ROBj = None; self.ROBk = None
-            # Value of source operands (from the register or ROB entry)
-            self.Valuej = None; self.Valuek = None
-            # Is the source operand required
-            self.Necessaryj = None; self.Necessaryk = None
-            # Valid bit i.e. have source and dest operands been resolved
-            self.Validj = None; self.Validk = None
+            self.Op = None
+            # entries of the form - (rob_entry, value, valid, label)
+            self.Values = []
+            # entries of the form - (tag, label)
+            self.Tags = []
 
-        def cycle(self):
+        def __str__(self):
+            return toString({
+                "inst_seq_id": self.inst_seq_id,
+                "busy": self.Busy,
+                "op": self.Op,
+                "values": self.Values,
+                "tags": self.Tags
+            })
+
+        def __repr__(self):
+            return self.__str__()
+
+        def get_inst_seq_id(self):
             return self.inst_seq_id
 
-        def tag(self):
-            return self.tag
-
-        def issue(self, cycle, RAT, inst, speculative):
+        def issue(self, STATE, inst, inst_seq_id):
+            global RTYPE_OPCODES, LOAD_OPCODES, STORE_OPCODES, COND_BRANCH_OPCODES
             self.inst_seq_id = inst_seq_id
             self.Busy = True
-            self.Speculative = speculative
             self.Op = inst["opcode"]
-            self.Dest = inst["arg1"]
-            self.Necessaryj = -1 # TODO
-            self.Necessaryk = -1 # TODO
 
-#            # First source operand
-#            RAT_Entry = RAT[inst["arg2"]]
-#            if RAT_Entry.Valid:
-#                # Read from register file
-#                self.Validj = True
-#                pass
-#            if not RAT_Entry.Valid and not RAT_Entry.Pending:
-#                # Read from ROB using ROB_Entry
-#                self.Validj = True
-#                pass
-#
-#            # Second source operand
-#            RAT_Entry = RAT[inst["arg3"]]
-#            if RAT_Entry.Valid:
-#                # Read from register file
-#                self.Validk = True
-#                pass
-#            if not RAT_Entry.Valid and not RAT_Entry.Pending:
-#                # Read from ROB using ROB_Entry
-#                self.Validk = True
-#                pass
+            if inst["opcode"] in RTYPE_OPCODES:
+                tags = [(inst["arg1"], "dest")]
+                values = [(inst["arg2"], "src1"), (inst["arg3"], "src2")]
+            if inst["opcode"] in LOAD_OPCODES:
+                tags = [(inst["arg1"], "dest")]
+                values = [(inst["arg2"], "add1"), (inst["arg3"], "add2")]
+            if inst["opcode"] in STORE_OPCODES:
+                values = [(inst["arg1"], "src"), (inst["arg2"], "add1"), (inst["arg3"], "add2")]
+            if inst["opcode"] in COND_BRANCH_OPCODES:
+                tags = [(inst["arg1"], "src1"), (inst["arg2"], "src2")]
+                values = [(inst["arg3"], "label")]
+            if inst["opcode"] == "syscall":
+                tags = []
+                values = [("$v0", "syscall_type")]
+            self.Tags = tags
 
-        def step(self, RAT):
-            if self.Validj != True:
-                RAT_Entry = RAT[inst["arg2"]]
-                if RAT_Entry.Valid:
-                    # Read from register file
-                    self.Validj = True
-                    pass
-                if not RAT_Entry.Valid and not RAT_Entry.Pending:
-                    # Read from ROB using ROB Entry
-                    self.Validj = True
-                    pass
+            def evaluateValueEntries(value):
+                (value_src, label) = value
+                if value_src[0] == 'c':
+                    value = int(value_src[1:])
+                    return (value, True, label)
+                if value_src[0] == '$':
+                    RAT_Entry = STATE.RAT[value_src]
+                    if RAT_Entry.Valid:
+                        # Read from register file
+                        value = STATE.REGISTER_FILE[REGISTER_MNEMONICS[value_src]]
+                        return (value, True, label)
+                    if not RAT_Entry.Valid and not RAT_Entry.Pending:
+                        # Read from ROB using ROB_Entry
+                        value = STATE.ROB.getValue(RAT_Entry.inst_seq_id)
+                        return (value, True, label)
+                    else:
+                        # Map to ROB entry
+                        return (RAT_Entry.inst_seq_id, False, label)
 
-            if self.Validk != True:
-                RAT_Entry = RAT[inst["arg3"]]
-                if RAT_Entry.Valid:
-                    # Read from register file
-                    self.Validk = True
-                    pass
-                if not RAT_Entry.Valid and not RAT_Entry.Pending:
-                    # Read from ROB using ROB Entry
-                    self.Validk = True
-                    pass
+            self.Values = map(evaluateValueEntries, values)
 
-        def isReady():
-            if self.Validj and self.Validk:
-                return True
-            else:
-                return False
+        def dispatch(self, FU):
+            result = {"inst_seq_id": self.inst_seq_id, "opcode": self.Op}
+            def insert(acc, label, value_tag):
+                acc[label] = value_tag
+                return acc
+            result = reduce(lambda acc, (value, _, label): insert(acc, label, value), self.Values, result)
+            result = reduce(lambda acc, (tag, label): insert(acc, label, tag), self.Tags, result)
+            self.Busy = False
+            FU.dispatch(result)
 
-    def __init__(self, functional_units, size = None):
-        self.ttype = ttype
+        def writeback_rtype(self, STATE, inst_seq_id, val):
+            def writeback_update(value_entry):
+                (value_src, valid, label) = value_entry
+                if not valid and value_src == inst_seq_id:
+                    return (val, True, label)
+                else:
+                    return value_entry
+            self.Values = map(writeback_update, self.Values)
+
+        def isReady(self):
+            return alll(lambda (_, valid, __): valid, self.Values)
+
+    # =========== Reservation Station Methods ===============================
+    def __init__(self, functional_units, size=None):
+        self.ttype = functional_units[0].ttype
         if size is None:
             self.size = len(functional_units)
         else:
             self.size = size
         self.functional_units = functional_units
-        self.RSEntries = [ReseravationStation.ReservationStationEntry()] * size
+        self.flush()
 
-    def dispatch(self, RAT):
-        # Evaluate operands of instruction in ReservationStationEntry
-        for rs_entry in self.RSEntries:
-            rs_entry.step()
-        FU = first(lambda fu: not fu.OCCUPIED, self.functional_units)
+    def __str__(self):
+        busy = lambda rs_entries: filter(lambda rs_entry: rs_entry.Busy, rs_entries)
+        return toString(busy(self.RSEntries))
+
+    def flush(self):
+        self.RSEntries = generate(ReseravationStation.ReservationStationEntry, self.size)
+
+    def findRSEntry(self, inst_seq_id):
+        return first(lambda rs: rs.get_inst_seq_id() == inst_seq_id, self.RSEntries)
+
+    def dispatch(self, STATE):
         # Check if any functional/execution units are available to dispatch
+        FU = first(lambda fu: not fu.OCCUPIED, self.functional_units)
         if FU is None:
             return
         # Filter all RS Entries whos instruction is ready to be dispatched
-        readyRSs = [(rs_entry.tag(), rs_entry.cycle()) for rs_entry in self.RSs if rs_entry.isReady()]
-        if len(readyRSs):
+        readyRSIDS = [rs_entry.get_inst_seq_id() for rs_entry in self.RSEntries if rs_entry.Busy and rs_entry.isReady()]
+        if len(readyRSIDS) == 0:
             return
-        # Find oldest inst
-        oldestRS = reduce(lambda (otag, ocycle), (ntag, ncycle): (ntag, ncycle) if ncycle < ocycle else (otag, ocycle), readyRSs)
-        FU.dispatch(oldestRS)
+        # Find oldest RS Entry and dispatch to appropriate FU
+        oldestRSID = reduce(lambda oldest_inst_seq_id, inst_seq_id: min(oldest_inst_seq_id, inst_seq_id), readyRSIDS)
+        oldestRS = self.findRSEntry(oldestRSID)
+        # Reset RS entry
+        oldestRS.dispatch(FU)
 
-    def nextFreeRSEntry(self):
-        freeRSs = filter(lambda rs_entry: not rs_entry.Busy, self.RSs)
-        if len(freeRSs) > 0:
-            return freeRSs[0]
+    def issue(self, STATE, inst):
+        freeRSs = filter(lambda rs_entry: not rs_entry.Busy, self.RSEntries)
+        if len(freeRSs) == 0:
+            return False
+        freeRSs[0].issue(STATE, inst, inst["inst_seq_id"])
+        return True
 
-    def writeback_rtype(self, reg_writeback):
-        (inst_id, _, dest_rob_idx, val) = reg_writeback
-        # Complete RS entries whose operands point to ROB entries
-        # i.e. The operands are necessary for the instruction and not resolved yet
+    def writeback_rtype(self, STATE, inst_seq_id, val):
+        # For each RS entry, resolve unresolved operands (value entries) whos value correspond to the writeback of the current instruction
         for rs_entry in self.RSEntries:
-            if rs_entry.Necessaryj and not rs_entry.Validj and rs_entry.ROBj == dest_rob_idx:
-                rs_entry.Validj = True
-                rs_entry.Valuej = val
-            if rs_entry.Necessaryk and not rs_entry.Validk and rs_entry.ROBk == dest_rob_idx:
-                rs_entry.Validk = True
-                rs_entry.Valuek = val
+            rs_entry.writeback_rtype(STATE, inst_seq_id, val)
+
+
+
+
+
 
 
 

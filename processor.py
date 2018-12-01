@@ -1,181 +1,206 @@
 import sys
-import assembler
-from functional import first, anyy
-from execution_units import ALU, LSU, BU
-from components import InstructionQueue, ReseravationStation, RegisterAliasTable, LoadStoreQueue, ReorderBuffer, REGISTER_MNEMONICS, CommonDataBus
+from frontend_components import branch_predictor
+import backend_components
+from functional import first, anyy, alll
+from state import State
+from util import getNextUUID
+from consts import RTYPE_OPCODES, LOAD_OPCODES, STORE_OPCODES, COND_BRANCH_OPCODES
+from debugger import Debugger
+
 
 def run():
-    global PROGRAM, PC, REGISTER_FILE, STACK, OLD_PIPELINE, NEW_PIPELINE, PIPELINE_EXECUTE_REGISTER, REGISTER_ADDRESS_STACK, REGISTER_ADDRESS_STACK_MAX, PIPELINE_STALLED, REGISTER_ADDRESS_STACK_FULL, JAL_INST_ADDR, RETIRED_INSTRUCTIONS, TOTAL_CYCLES, ALUs, BUs, LSUs, ROB
-    print("PC: %d" % PC)
     while True:
-        issue()
-        print("issue_inst: %s" % str(NEW_PIPELINE["execute"]))
-        execute()
-        print("side_affects: %s" % str(NEW_PIPELINE["writeback"]))
-        should_exit = evaluateSideAffect()
-        if should_exit:
-            print("Program Returned Successfully")
-            print("RETIRED_INSTRUCTIONS = %d" % RETIRED_INSTRUCTIONS)
-            print("TOTAL_CYCLES = %d" % TOTAL_CYCLES)
-            print("IPC = %f" % (float(RETIRED_INSTRUCTIONS)/TOTAL_CYCLES))
-            return
-        OLD_PIPELINE = dict(NEW_PIPELINE)
-        NEW_PIPELINE = {
-            "execute": None,
-            "writeback": None
-        }
-        print("PIPELINE_STALLED: %s" % str(PIPELINE_STALLED))
-        TOTAL_CYCLES += 1
-        if not PIPELINE_STALLED:
-            PC += 1
-#            for exec_unit in ALUs + LSUs + BUs:
-#                exec_unit.step()
-            print("INCREMENT")
-        print("PC: %d" % PC)
+        runCycle()
+
+
+def runCycle():
+    global STATE
+
+    print("PC: %d" % STATE.PC)
+    should_exit = commit()
+    writeback()
+    execute()
+    dispatch()
+    issue()
+    decode()
+    fetch()
+    if should_exit:
+        print("Program Returned Successfully")
+        print("STATE.RETIRED_INSTRUCTIONS = %d" % STATE.RETIRED_INSTRUCTIONS)
+        print("STATE.TOTAL_CYCLES = %d" % STATE.TOTAL_CYCLES)
+        print("IPC = %f" % (float(STATE.RETIRED_INSTRUCTIONS)/STATE.TOTAL_CYCLES))
+        return
+    STATE.TOTAL_CYCLES += 1
+    if not STATE.PIPELINE_STALLED:
+        STATE.PC += 1
 
 
 def fetch():
-    global PROGRAM, PC, REGISTER_FILE, STACK, OLD_PIPELINE, NEW_PIPELINE, PIPELINE_EXECUTE_REGISTER, REGISTER_ADDRESS_STACK, REGISTER_ADDRESS_STACK_MAX, PIPELINE_STALLED, REGISTER_ADDRESS_STACK_FULL, JAL_INST_ADDR, RETIRED_INSTRUCTIONS, TOTAL_CYCLES, ALUs, BUs, LSUs, ROB
+    global STATE
 
-    if PIPELINE_STALLED:
+    if STATE.PIPELINE_STALLED:
+        STATE.PIPELINE["decode"]= None
+        return
+    if STATE.PC != -1:
+        inst = dict(STATE.PROGRAM[STATE.PC])
+        inst["inst_seq_id"] = getNextUUID()
+        STATE.PIPELINE["decode"] = inst
+        if inst["opcode"] == "syscall":
+            STATE.PIPELINE_STALLED = True
             return
-    if PC != -1:
-            inst = dict(PROGRAM[PC])
-            NEW_PIPELINE["decode"] = dict(PROGRAM[PC])
-            # Speculative branching for conditional branches, stall atm
-            if inst["opcode"] in ["beq", "bne", "bgt", "bge", "blt", "ble"]:
-                            PIPELINE_STALLED = True
-            if inst["opcode"] == "syscall":
-                            PIPELINE_STALLED = True
 
-    lookahead = dict(PROGRAM[PC + 1])
-
+    # If previous lookahead couldn't make a prediction but the end of the function is reached (i.e. jump return)
+    if len(STATE.PROGRAM) == STATE.PC + 1:
+        STATE.PIPELINE_STALLED = True
+        return
+    lookahead = dict(STATE.PROGRAM[STATE.PC + 1])
+    # Speculatively execute conditional branches
+    if lookahead["opcode"] in ["beq", "bne", "bgt", "bge", "blt", "ble"]:
+        taken = branch_predictor(lookahead, STATE)
+        if taken:
+            STATE.PC = lookahead["arg3"]
     # Resolve unconditional branches early in the pipeline using a lookahead
     if lookahead["opcode"] in ["j", "jal"]:
         if lookahead["opcode"] == "jal":
-            JAL_INST_ADDR = PC + 1
-            if len(REGISTER_ADDRESS_STACK) < REGISTER_ADDRESS_STACK_MAX:
-                REGISTER_ADDRESS_STACK.append(PC + 1)
-                print("REGISTER_ADDRESS_STACK = %s" % str(REGISTER_ADDRESS_STACK))
-                REGISTER_ADDRESS_STACK_FULL = False
+            STATE.JAL_INST_ADDR = STATE.PC + 1
+            if len(STATE.REGISTER_ADDRESS_STACK) < STATE.REGISTER_ADDRESS_STACK_MAX:
+                STATE.REGISTER_ADDRESS_STACK.append(STATE.PC + 1)
+                print("REGISTER_ADDRESS_STACK = %s" % str(STATE.REGISTER_ADDRESS_STACK))
+                STATE.REGISTER_ADDRESS_STACK_FULL = False
             else:
-                REGISTER_ADDRESS_STACK_FULL = True
+                STATE.REGISTER_ADDRESS_STACK_FULL = True
         else:
-            RETIRED_INSTRUCTIONS += 1
-        PC = inst["arg1"]
-
-    # Resolve target address (TA) from BTAC
-    # TODO
+            STATE.RETIRED_INSTRUCTIONS += 1
+        STATE.PC = lookahead["arg1"]
 
 
 def decode():
-    global PROGRAM, PC, REGISTER_FILE, STACK, OLD_PIPELINE, NEW_PIPELINE, PIPELINE_EXECUTE_REGISTER, REGISTER_ADDRESS_STACK, REGISTER_ADDRESS_STACK_MAX, PIPELINE_STALLED, REGISTER_ADDRESS_STACK_FULL, JAL_INST_ADDR, RETIRED_INSTRUCTIONS, TOTAL_CYCLES, ALUs, BUs, LSUs, ROB
+    global STATE
 
     # Decodes byte instruction to control signals for the rest of the pipeline
     # Already decoded (by assembler)
 
-    inst = OLD_PIPELINE["decode"]
+    inst = STATE.PIPELINE["decode"]
+    if inst is None:
+        return
     # Resolve RETURN JUMP instructions that requires register lookup (so can only be performed during decode)
     # Do not push to Instruction Queue, wait for next fetch cycle where it the jump return target will be fetched
     if inst["opcode"] == "jr":
-        if REGISTER_ADDRESS_STACK_FULL:
-            PIPELINE_STALLED = True
+        if STATE.REGISTER_ADDRESS_STACK_FULL:
+            STATE.PIPELINE_STALLED = True
         else:
-            PC = REGISTER_ADDRESS_STACK.pop() + 1
-            RETIRED_INSTRUCTIONS += 1
+            STATE.PC = STATE.REGISTER_ADDRESS_STACK.pop() + 1
+            STATE.RETIRED_INSTRUCTIONS += 1
+            STATE.PIPELINE_STALLED = False
     else:
         # Push to instruction queue
-        INSTRUCTION_QUEUE.push(inst)
+        STATE.INSTRUCTION_QUEUE.push(inst)
 
 
 def issue():
+    global STATE, RTYPE_OPCODES, LOAD_OPCODES, STORE_OPCODES, COND_BRANCH_OPCODES
 
-    inst = INSTRUCTION_QUEUE.peek()
-    # Abort is Instruction Queue in empty
+    inst = STATE.INSTRUCTION_QUEUE.peek()
+    # Skip is Instruction Queue in empty
     if inst is None:
         return
 
     # Abort is no execution unit is free
-    if (inst["opcode"] in ["add", "addi", "sub", "subi", "syscall", "mul", "div"] and len(filter(lambda alu: not alu.OCCUPIED, ALUs)) == 0) or \
-         (inst["opcode"] in ["lw", "sw"] and len(filter(lambda lsu: not lsu.OCCUPIED, LSUs)) == 0) or \
-         (inst["opcode"] in ["beq", "bne", "bgt", "bge", "blt", "ble", "jr", "jal"] and len(filter(lambda bu: not bu.OCCUPIED, BUs)) == 0):
+    if (inst["opcode"] in RTYPE_OPCODES and len(filter(lambda alu: not alu.OCCUPIED, STATE.ALUs)) == 0) or \
+         (inst["opcode"] in LOAD_OPCODES + STORE_OPCODES and len(filter(lambda lsu: not lsu.OCCUPIED, STATE.LSUs)) == 0) or \
+         (inst["opcode"] in COND_BRANCH_OPCODES + ["syscall"] and len(filter(lambda bu: not bu.OCCUPIED, STATE.BUs)) == 0):
             return
 
-    INSTRUCTION_QUEUE.pop()
-    NEW_PIPELINE["execute"] = inst
+    STATE.INSTRUCTION_QUEUE.pop()
+    # issue into RS
+    if inst["opcode"] in RTYPE_OPCODES:
+        STATE.ALU_RS.issue(STATE, inst)
+    if inst["opcode"] in LOAD_OPCODES + STORE_OPCODES:
+        STATE.LSU_RS.issue(STATE, inst)
+    if inst["opcode"] in COND_BRANCH_OPCODES + ["syscall"]:
+        print("syscall issued")
+        STATE.BU_RS.issue(STATE, inst)
+    # create ROB entry
+    STATE.ROB.issue(STATE, inst)
+    # Update RAT to point instruction 'dest' to inst_seq_id that will have the latest value of that register
+    STATE.RAT.issue(inst)
+
 
 def dispatch():
+    global STATE
+
     # go through reservation stations and call the dipatch instruction
-    for rs in [ALU_RS, LSU_RS, BU_RS]:
-        rs.dispatch(RAT)
+    for rs in [STATE.ALU_RS, STATE.LSU_RS, STATE.BU_RS]:
+        rs.dispatch(STATE)
+
 
 def execute():
-    global PROGRAM, PC, REGISTER_FILE, STACK, OLD_PIPELINE, NEW_PIPELINE, PIPELINE_EXECUTE_REGISTER, REGISTER_ADDRESS_STACK, REGISTER_ADDRESS_STACK_MAX, PIPELINE_STALLED, REGISTER_ADDRESS_STACK_FULL, JAL_INST_ADDR, RETIRED_INSTRUCTIONS, TOTAL_CYCLES, ALUs, BUs, LSUs, ROB
+    global STATE
 
     # Step all OCCUPIED function units
-    inuse_fus = filter(lambda fu: fu.OCCUPIED and not fu.FINISHED, ALUs + LSUs + BUs)
-    for inuse_fs in inuse_fus:
-        inuse_fu.step()
-
+    inuse_fus = filter(lambda fu: fu.OCCUPIED and not fu.FINISHED, STATE.ALUs + STATE.LSUs + STATE.BUs)
+    for inuse_fu in inuse_fus:
+        inuse_fu.step(STATE)
     # Set to the writeback stage a set of instructions that can write its
-    # computation to the ROB
-    writeback_fus = filter(lambda fu: fu.OCCUPIED, ALUs + LSUs)
-    writebacks = [ fu.output for fu in writeback_fus ]
-    if writebacks == []:
-        NEW_PIPELINE["writeback"] = None
-    NEW_PIPELINE["writeback"] = writebacks
+    # computation to the STATE.ROB
+    fin_fus = [fu for fu in STATE.ALUs + STATE.LSUs + STATE.BUs if fu.OCCUPIED and fu.FINISHED]
+    # Skip if nothing to writeback this cycle
+    if len(fin_fus) == 0:
+        STATE.PIPELINE["writeback"] = None
+        return
+    # Select oldest writeback
+    def fu_sort(fu_ttype):
+        if fu_ttype == "alu":
+            return 1
+        if fu_ttype == "lsu":
+            return 2
+        if fu_ttype == "bu":
+            return 3
+    fin_fus = sorted(fin_fus, key=lambda writeback: fu_sort(writeback.ttype))
+    highest_prorioty_fu = fin_fus[0]
+    STATE.PIPELINE["writeback"] = highest_prorioty_fu.output
+    highest_prorioty_fu.flush()
+
 
 def writeback():
+    global STATE
 
-    # Takes a list of writebacks, each writeback (instr_tag, ttype, dest, res)
-    # Transports over the CDB
-    writeback = OLD_PIPELINE["writeback"]
-    CDB.writeback(writeback)
+    # Broascasts the next writeback over the CDB to update the RSs, ROB and LSQ
+    writeback = STATE.PIPELINE["writeback"]
+    if writeback is None:
+        return
+    STATE.CDB.writeback(STATE, writeback)
+
 
 def commit():
+    global STATE
 
-    # Find next instruction to be retired (comparing the instruction sequence id)
-    ROB.commit_ptr = LSQ.commit_ptr
-
-
-def runProgram(filename):
-    global PROGRAM, PC, REGISTER_FILE, STACK, OLD_PIPELINE, NEW_PIPELINE, PIPELINE_EXECUTE_REGISTER, REGISTER_ADDRESS_STACK, REGISTER_ADDRESS_STACK_MAX, PIPELINE_STALLED, REGISTER_ADDRESS_STACK_FULL, JAL_INST_ADDR, RETIRED_INSTRUCTIONS, TOTAL_CYCLES, ALUs, BUs, LSUs, ROB, INSTRUCTION_QUEUE, RAT, ALU_RS, BU_RS, LSU_RS, CDB, LSQ
-    PROGRAM = assembler.readProgram(filename)
-
-    RETIRED_INSTRUCTIONS = 0
-    TOTAL_CYCLES = 0
-    PC = -1
-    REGISTER_FILE = [0] * 34
-    STACK = [0] * 100
-    OLD_PIPELINE = {
-        "execute": None,
-        "writeback": None
-    }
-    NEW_PIPELINE = {
-        "execute": None,
-        "writeback": None
-    }
-    PIPELINE_EXECUTE_REGISTER = []
-    REGISTER_ADDRESS_STACK = []
-    REGISTER_ADDRESS_STACK_MAX = 16
-    REGISTER_ADDRESS_STACK_FULL = False
-    PIPELINE_STALLED = False
-    JAL_INST_ADDR = None
-    ALUs = [ALU(), ALU()]; ALU_RS = ReseravationStation(ALUs, size=5)
-    BUs = [BU()]; BU_RS = ReseravationStation(BUs, size=5)
-    LSUs = [LSU()]; LSU_RS = ReseravationStation(LSUs, size=5)
-    RAT = RegisterAliasTable()
-    ROB = ReorderBuffer()
-    LSQ = LoadStoreQueue()
-    INSTRUCTION_QUEUE = InstructionQueue()
-    CDB = CommonDataBus()
-    print(PROGRAM)
-    run()
+    # Commit next entry of ROB (and optionally the ROB) to the architectural state (memory and register file)
+    try:
+        STATE.ROB.commit(STATE)
+        return False
+    except backend_components.ReorderBuffer.PipelineFlush:
+        # Flush Instruction Queue
+        STATE.INSTRUCTION_QUEUE.flush()
+        # Reset the RAT to point to physical registers (i.e. flush)
+        STATE.RAT.flush()
+        # Flush Reservation Stations
+        for rs in [STATE.ALU_RS, STATE.BU_RS, STATE.LSU_RS]:
+            rs.flush()
+        # Flush Execution Units
+        for fu in STATE.ALUs + STATE.BUs + STATE.LSUs:
+            fu.flush()
+    except backend_components.ReorderBuffer.SyscallExit:
+        return True
 
 
 if __name__ == "__main__":
-    runProgram(sys.argv[1])
+    global STATE
+    filename = sys.argv[1]
+    STATE = State(filename)
 
+    # run()
+    Debugger(STATE, runCycle).run()
 
 
 

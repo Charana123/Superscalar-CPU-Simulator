@@ -1,5 +1,6 @@
 import sys
 
+
 def readProgram(filename):
     # Read Input File
     with open(filename) as f:
@@ -61,26 +62,26 @@ def readProgram(filename):
             if inst["opcode"] in ["beq", "bne", "bgt", "bge", "blt", "ble"]:
                 inst["arg3"] = labels[inst["arg3"]]
             if inst["opcode"] in ["j", "jal"]:
-                inst["arg1"]= labels[inst["arg1"]]
+                inst["arg1"] = labels[inst["arg1"]]
         return inst
 
     def transformPseudoInstructions(inst):
-				if isinstance(inst, dict):
-					if inst["opcode"] == "move":
-							inst["opcode"] = "add"
-							inst["arg3"] = "$zero"
-					if inst["opcode"] == "li":
-							inst["opcode"] = "addi"
-							inst["arg3"] = "$zero"
-					if inst["opcode"] == "mfhi":
-							inst["opcode"] = "add"
-							inst["arg2"] = "$zero"
-							inst["arg3"] = "$hi"
-					if inst["opcode"] == "mflo":
-							inst["opcode"] = "add"
-							inst["arg2"] = "$zero"
-							inst["arg3"] = "$lo"
-				return inst
+        if isinstance(inst, dict):
+            if inst["opcode"] == "move":
+                            inst["opcode"] = "add"
+                            inst["arg3"] = "$zero"
+            if inst["opcode"] == "li":
+                            inst["opcode"] = "addi"
+                            inst["arg3"] = "$zero"
+            if inst["opcode"] == "mfhi":
+                            inst["opcode"] = "add"
+                            inst["arg2"] = "$zero"
+                            inst["arg3"] = "$hi"
+            if inst["opcode"] == "mflo":
+                            inst["opcode"] = "add"
+                            inst["arg2"] = "$zero"
+                            inst["arg3"] = "$lo"
+        return inst
 
     # for label, insts in program.iteritems():
     program = map(toInstruction, lines)
@@ -89,6 +90,7 @@ def readProgram(filename):
     # program[label] = insts
 
     return program
+
 
 if __name__ == '__main__':
     program = readProgram(sys.argv[1])

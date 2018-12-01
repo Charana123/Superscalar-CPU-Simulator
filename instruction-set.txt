@@ -1,4 +1,4 @@
-div
+rtype - 1 tag, 2 value
 ################## Arithmetic  Operations ######################
 
 "add" : Add
@@ -21,38 +21,27 @@ div
 	# mul rt0 rt1 rt2
 	# i.e. rt0 = rt1*rt2
 
+"mod": Modulo
+	# mod rt0 rt1 rt2
+	# i.e. rt1 = rt1%rt2
+
 "div" : Divide
-	# div rt1 rt2
-	# i.e. hi = rt1%rt2, lo = rt1/rt2
+	# div rt0 rt1 rt2
+	# i.e. rt0 = rt1/rt2
 
-"mflo": Move from lo
-	# mflo rt1
-	# i.e. rt1 = lo
-
-"mfhi": Move from hi
-	# mflo rt1
-	# i.e. rt1 = hi
-
-# "cmp" : Compare registers
-# 	# cmp rt0 rt1 rt2
-# 	# i.e. rt0 = abs(sign(rt1 - rt2))
-
-sw
+load - 1 tag, 2 value
+store - 3 value
 #################### Load/Store Instructions ####################
 
 "lw" : Load Word
 	# lw rt0 rt1 c40
 	# i.e. rt0 <- M[rt1 + c40]
 
-"lui" : Load Upper Immediate
-	# lui rt0 c60
-	# i.e. rt0 <- (c60 << 16)
-
 "sw" : Store Word
 	# sw rt0 rt1 c40
 	# where M[rt1 + c40] <- rt0
 
-all branch instructions
+branch - 2 value, 1 tag
 #################### Conditional Jump ###########################
 
 "beq" : Branch if equal
@@ -79,6 +68,13 @@ all branch instructions
 	# blez rt0 rt1 label
 	# i.e. branch to label if rt0 <= rt1
 
+jump return - 1 value
+
+both are lists
+value entry - rob_entry, value, valid, label
+tag entry - tag, label
+the issue fills the relevant entries of the RS entry
+the dispatch returns [(value, label), (tag, label)] entries
 ################### Un-Conditional Jump #########################
 
 "j" : Jump to label
