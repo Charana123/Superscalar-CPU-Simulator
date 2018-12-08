@@ -38,6 +38,7 @@ class Debugger(object):
 
     # ========== PUBLIC FUNCTIONS =========================================
     def printAll(self):
+        self.printProgram()
         self.printFetch()
         self.printDecode()
         self.printIssue()
@@ -50,6 +51,8 @@ class Debugger(object):
         print "========= Fetch ========="
         print "### Fetches instruction placed in PIPELINE"
         print "Fetch Instruction: %s" % toString(self.STATE.PIPELINE["decode"])
+        print "### Speculatively takes/doesnt-taken branch"
+        self.printBTB()
 
     def printDecode(self):
         print "======== Decodes ========="
@@ -94,15 +97,10 @@ class Debugger(object):
 
 
     # ========== INTERNAL FUNCTIONS =========================================
-    def printProgram(self, cmd_args):
-
-        if cmd_args is not None:
-            if len(cmd_args) == 1:
-                [pc] = cmd_args
-        else:
-            pc = self.STATE.PC
-        print "PC: %d" % pc
-        print "Current Instruction: %s" % self.STATE.PROGRAM[pc]
+    def printProgram(self):
+        print "========= PROGRAM =========="
+        print toString(self.STATE.PROGRAM)
+        print "============================"
 
     def printStack(self, cmd_args):
         if cmd_args is not None:
@@ -140,6 +138,9 @@ class Debugger(object):
 
     def printLoadStoreBuffer(self):
         print "LSQ: %s" % toString(self.STATE.LSQ)
+
+    def printBTB(self):
+        print "BTB: %s" % toString(self.STATE.BTB)
 
 
 

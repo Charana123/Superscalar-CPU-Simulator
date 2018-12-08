@@ -171,6 +171,7 @@ class BU(BaseUnit):
         if self.CYCLES == self.CYCLES_PER_OPERATION:
             self.FINISHED = True
             if self.inputt["opcode"] in COND_BRANCH_OPCODES:
+                pc = self.inputt["pc"]
                 if((self.inputt["opcode"] == "beq" and self.inputt["src1"] == self.inputt["src2"]) or
                     (self.inputt["opcode"] == "bne" and self.inputt["src1"] != self.inputt["src2"]) or
                     (self.inputt["opcode"] == "bgt" and self.inputt["src1"] > self.inputt["src2"]) or
@@ -180,9 +181,8 @@ class BU(BaseUnit):
                     self.output = {
                         "inst_seq_id": self.inputt["inst_seq_id"],
                         "ttype": "branch",
-                        "correct": STATE.SpeculativelyTaken[0]
+                        "correct_speculation": STATE.BTB.get(pc).taken
                     }
-                    STATE.SpeculativelyTaken = STATE.SpeculativelyTaken[1:]
                 if((self.inputt["opcode"] == "beq" and not (self.inputt["src1"] == self.inputt["src2"])) or
                     (self.inputt["opcode"] == "bne" and not(self.inputt["src1"] != self.inputt["src2"])) or
                     (self.inputt["opcode"] == "bgt" and not(self.inputt["src1"] > self.inputt["src2"])) or
@@ -191,10 +191,9 @@ class BU(BaseUnit):
                     self.output = {
                         "inst_seq_id": self.inputt["inst_seq_id"],
                         "ttype": "branch",
-                        "correct": not STATE.SpeculativelyTaken[0]
+                        "correct_speculation": not STATE.BTB.get(pc).taken
                     }
-                    STATE.SpeculativelyTaken = STATE.SpeculativelyTaken[1:]
-            if self.inputt["opcode"] == "syscall":
+            elif self.inputt["opcode"] == "syscall":
                 self.output = {
                     "inst_seq_id": self.inputt["inst_seq_id"],
                     "ttype": "syscall"

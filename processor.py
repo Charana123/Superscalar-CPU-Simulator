@@ -1,5 +1,5 @@
 import sys
-from frontend_components import branch_predictor
+from branch_prediction import branch_predictor
 import backend_components
 from functional import first, anyy, alll
 from state import State
@@ -38,31 +38,8 @@ def runCycle():
 def fetch():
     global STATE
 
-    if STATE.PIPELINE_STALLED:
-        STATE.PIPELINE["decode"]= None
-        return
-    if STATE.PC != -1:
-        inst = dict(STATE.PROGRAM[STATE.PC])
-        inst["inst_seq_id"] = getNextUUID()
-        STATE.PIPELINE["decode"] = inst
-        if inst["opcode"] == "syscall":
-            STATE.PIPELINE_STALLED = True
-            return
-
-    # If previous lookahead couldn't make a prediction but the end of the function is reached (i.e. jump return)
-    if len(STATE.PROGRAM) == STATE.PC + 1:
-        STATE.PIPELINE_STALLED = True
-        return
-    lookahead = dict(STATE.PROGRAM[STATE.PC + 1])
-    # Speculatively execute conditional branches
-    if lookahead["opcode"] in ["beq", "bne", "bgt", "bge", "blt", "ble"]:
-        taken = branch_predictor(lookahead, STATE)
-        if taken:
-            STATE.PC = lookahead["arg3"]
-    # Resolve unconditional branches early in the pipeline using a lookahead
-    if lookahead["opcode"] in ["j", "jal"]:
-        if lookahead["opcode"] == "jal":
-            STATE.JAL_INST_ADDR = STATE.PC + 1
+    def jump(inst):
+        if inst["opcode"] == "jal":
             if len(STATE.REGISTER_ADDRESS_STACK) < STATE.REGISTER_ADDRESS_STACK_MAX:
                 STATE.REGISTER_ADDRESS_STACK.append(STATE.PC + 1)
                 print("REGISTER_ADDRESS_STACK = %s" % str(STATE.REGISTER_ADDRESS_STACK))
@@ -71,7 +48,40 @@ def fetch():
                 STATE.REGISTER_ADDRESS_STACK_FULL = True
         else:
             STATE.RETIRED_INSTRUCTIONS += 1
-        STATE.PC = lookahead["arg1"]
+        return inst["arg1"]
+
+    if STATE.PIPELINE_STALLED:
+        STATE.PIPELINE["decode"] = None
+        return
+    if STATE.PC != -1:
+        # jumps
+        inst = dict(STATE.PROGRAM[STATE.PC])
+        if inst["opcode"] in ["j", "jal"]:
+            STATE.PC = jump(inst)
+            return
+        # non-jumps
+        inst_seq_id = getNextUUID()
+        inst["inst_seq_id"] = inst_seq_id
+        inst["pc"] = STATE.PC
+        STATE.PIPELINE["decode"] = inst
+        # Speculatively execute conditional branches
+        if inst["opcode"] in ["beq", "bne", "bgt", "bge", "blt", "ble"]:
+            taken = branch_predictor(inst, STATE.PC, STATE)
+            if taken:
+                STATE.PC = inst["arg3"]
+        if inst["opcode"] == "syscall":
+            STATE.PIPELINE_STALLED = True
+            return
+
+    # If previous lookahead couldn't make a prediction but the end of the function is reached
+    if len(STATE.PROGRAM) == (STATE.PC + 1) or not isinstance(STATE.PROGRAM[STATE.PC + 1], dict):
+        STATE.PIPELINE_STALLED = True
+        return
+    # jump lookahead
+    lookahead = dict(STATE.PROGRAM[STATE.PC + 1])
+    if lookahead["opcode"] in ["j", "jal"]:
+        STATE.PC = jump(lookahead)
+
 
 
 def decode():
@@ -90,6 +100,7 @@ def decode():
             STATE.PIPELINE_STALLED = True
         else:
             STATE.PC = STATE.REGISTER_ADDRESS_STACK.pop() + 1
+            print("pop")
             STATE.RETIRED_INSTRUCTIONS += 1
             STATE.PIPELINE_STALLED = False
     else:

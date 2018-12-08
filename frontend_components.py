@@ -4,15 +4,6 @@ from consts import REGISTER_MNEMONICS
 from consts import RTYPE_OPCODES, LOAD_OPCODES, STORE_OPCODES, COND_BRANCH_OPCODES
 
 
-def branch_predictor(branch_inst, STATE):
-    # Always speculatively take conditional branches
-    taken = True
-    STATE.SpeculativelyTaken.append(taken)
-    return taken
-    # Implement Static branching i.e. backward branches always taken, forward branches never taken
-    # Implement Dynamic branching i.e. BTAC and 2-bit branch predictor
-
-
 class InstructionQueue(object):
     def __init__(self):
         self.flush()
@@ -102,6 +93,7 @@ class ReseravationStation(object):
     class ReservationStationEntry(object):
         def __init__(self):
             self.inst_seq_id = None  # Cycle the instruction was issued (for oldest dispatched first heuristic)
+            self.pc = None
             self.Busy = False
             self.Op = None
             # entries of the form - (rob_entry, value, valid, label)
@@ -112,6 +104,7 @@ class ReseravationStation(object):
         def __str__(self):
             return toString({
                 "inst_seq_id": self.inst_seq_id,
+                "pc": self.pc,
                 "busy": self.Busy,
                 "op": self.Op,
                 "values": self.Values,
@@ -126,7 +119,8 @@ class ReseravationStation(object):
 
         def issue(self, STATE, inst, inst_seq_id):
             global RTYPE_OPCODES, LOAD_OPCODES, STORE_OPCODES, COND_BRANCH_OPCODES
-            self.inst_seq_id = inst_seq_id
+            self.inst_seq_id = inst["inst_seq_id"]
+            self.pc = inst["pc"]
             self.Busy = True
             self.Op = inst["opcode"]
 
@@ -139,8 +133,8 @@ class ReseravationStation(object):
             if inst["opcode"] in STORE_OPCODES:
                 values = [(inst["arg1"], "src"), (inst["arg2"], "add1"), (inst["arg3"], "add2")]
             if inst["opcode"] in COND_BRANCH_OPCODES:
-                tags = [(inst["arg1"], "src1"), (inst["arg2"], "src2")]
-                values = [(inst["arg3"], "label")]
+                tags = [(inst["arg3"], "label")]
+                values = [(inst["arg1"], "src1"), (inst["arg2"], "src2")]
             if inst["opcode"] == "syscall":
                 tags = []
                 values = [("$v0", "syscall_type")]
@@ -168,7 +162,7 @@ class ReseravationStation(object):
             self.Values = map(evaluateValueEntries, values)
 
         def dispatch(self, FU):
-            result = {"inst_seq_id": self.inst_seq_id, "opcode": self.Op}
+            result = {"inst_seq_id": self.inst_seq_id, "pc": self.pc, "opcode": self.Op}
             def insert(acc, label, value_tag):
                 acc[label] = value_tag
                 return acc

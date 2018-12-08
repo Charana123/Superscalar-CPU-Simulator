@@ -57,6 +57,7 @@ class ReorderBuffer(CircularBuffer):
 
         def __init__(self):
             self.inst_seq_id = None  # Sequence ID of instruction
+            self.pc = None  # PC of instruction
             self.op_type = None  # To distinguish rtypes, loads, stores, jumps and branches
             self.Valid = None  # Whether there exists a valid value in the ROB Entry
             self.Value = None  # The computed value of the instruction that must be written to program state
@@ -65,6 +66,7 @@ class ReorderBuffer(CircularBuffer):
         def __str__(self):
             return toString({
                 "inst_seq_id": self.inst_seq_id,
+                "pc": self.pc,
                 "op_type": self.op_type,
                 "valid": self.Valid,
                 "value": self.Value,
@@ -118,6 +120,7 @@ class ReorderBuffer(CircularBuffer):
     def issue_impl(self, STATE, inst):
         vacant_rob_entry = self.entries[self.issue_ptr]
         vacant_rob_entry.inst_seq_id = inst["inst_seq_id"]
+        vacant_rob_entry.pc = inst["pc"]
         vacant_rob_entry.Valid = False
         vacant_rob_entry.Value = None
         print("inst[opcode]", inst["opcode"])
@@ -161,15 +164,30 @@ class ReorderBuffer(CircularBuffer):
                 STATE.LSQ.flush()
                 raise ReorderBuffer.PipelineFlush()
         if retire_rob_entry.op_type == "branch":
+            if not retire_rob_entry.Valid:
+                return False
             # The branch was incorrect predicted
-            if retire_rob_entry.Value == 0:
+            elif retire_rob_entry.Value == 0:
+                # Update BTB entry
+                STATE.BTB.update(retire_rob_entry.pc)
+                # Update PC
+                BTB_Entry = STATE.BTB.get(retire_rob_entry.pc)
+                if BTB_Entry.taken:
+                    print("taken", BTB_Entry.target_address)
+                    STATE.PC = BTB_Entry.target_address
+                else:
+                    print("not taken", BTB_Entry.branch_pc)
+                    STATE.PC = BTB_Entry.branch_pc + 1
+                # Update Return Address Stack
+                STATE.REGISTER_ADDRESS_STACK = BTB_Entry.REGISTER_ADDRESS_STACK_COPY
+                # Flush Pipeline
                 self.flush()
                 STATE.LSQ.flush()
+                # Unstall Pipeline
+                STATE.PIPELINE_STALLED = False
                 raise ReorderBuffer.PipelineFlush()
             else:
                 return True
-        if retire_rob_entry.op_type == "jump":
-            return True
         if retire_rob_entry.op_type == "r_type":
             if not retire_rob_entry.Valid:
                 return False
@@ -191,6 +209,7 @@ class LoadStoreQueue(CircularBuffer):
 
         def __init__(self):
             self.seq_id = None
+            self.pc = None
             self.Store = None
             self.Address = None  # Address to (load from)/(store to)
             self.ValidA = False  # if address has been resolved
@@ -200,6 +219,7 @@ class LoadStoreQueue(CircularBuffer):
         def __str__(self):
             return toString({
                 "inst_seq_id": self.inst_seq_id,
+                "pc": self.pc,
                 "store": self.Store,
                 "address": self.Address,
                 "valid_address": self.ValidA,
