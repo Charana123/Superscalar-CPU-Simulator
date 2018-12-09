@@ -3,12 +3,16 @@ from branch_prediction import branch_predictor
 import backend_components
 from functional import first, anyy, alll
 from state import State
-from util import getNextUUID
+from util import getNextUUID, toString
 from consts import RTYPE_OPCODES, LOAD_OPCODES, STORE_OPCODES, COND_BRANCH_OPCODES
 from debugger import Debugger
 
 
 def run():
+    global STATE
+    print("PROGRAM")
+    for i, inst in enumerate(STATE.PROGRAM):
+        print(i, inst)
     while True:
         runCycle()
 
@@ -29,6 +33,7 @@ def runCycle():
         print("STATE.RETIRED_INSTRUCTIONS = %d" % STATE.RETIRED_INSTRUCTIONS)
         print("STATE.TOTAL_CYCLES = %d" % STATE.TOTAL_CYCLES)
         print("IPC = %f" % (float(STATE.RETIRED_INSTRUCTIONS)/STATE.TOTAL_CYCLES))
+        exit()
         return
     STATE.TOTAL_CYCLES += 1
     if not STATE.PIPELINE_STALLED:
@@ -55,6 +60,7 @@ def fetch():
         return
     if STATE.PC != -1:
         # jumps
+        print("STATE.PROGRAM[STATE.PC]", STATE.PROGRAM[STATE.PC])
         inst = dict(STATE.PROGRAM[STATE.PC])
         if inst["opcode"] in ["j", "jal"]:
             STATE.PC = jump(inst)
@@ -68,7 +74,10 @@ def fetch():
         if inst["opcode"] in ["beq", "bne", "bgt", "bge", "blt", "ble"]:
             taken = branch_predictor(inst, STATE.PC, STATE)
             if taken:
+                print("taken")
                 STATE.PC = inst["arg3"]
+            else:
+                print("not taken")
         if inst["opcode"] == "syscall":
             STATE.PIPELINE_STALLED = True
             return

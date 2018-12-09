@@ -73,7 +73,7 @@ class RegisterAliasTable(object):
         return self.entries[key]
 
     def issue(self, inst):
-        if inst["opcode"] in RTYPE_OPCODES:
+        if inst["opcode"] in RTYPE_OPCODES + LOAD_OPCODES:
             dest_reg = inst["arg1"]
             inst_seq_id = inst["inst_seq_id"]
             self.entries[dest_reg].issue(inst_seq_id)
@@ -131,6 +131,7 @@ class ReseravationStation(object):
                 tags = [(inst["arg1"], "dest")]
                 values = [(inst["arg2"], "add1"), (inst["arg3"], "add2")]
             if inst["opcode"] in STORE_OPCODES:
+                tags = []
                 values = [(inst["arg1"], "src"), (inst["arg2"], "add1"), (inst["arg3"], "add2")]
             if inst["opcode"] in COND_BRANCH_OPCODES:
                 tags = [(inst["arg3"], "label")]
@@ -148,14 +149,17 @@ class ReseravationStation(object):
                 if value_src[0] == '$':
                     RAT_Entry = STATE.RAT[value_src]
                     if RAT_Entry.Valid:
+                        print(label, "one")
                         # Read from register file
                         value = STATE.REGISTER_FILE[REGISTER_MNEMONICS[value_src]]
                         return (value, True, label)
                     if not RAT_Entry.Valid and not RAT_Entry.Pending:
+                        print(label, "two")
                         # Read from ROB using ROB_Entry
-                        value = STATE.ROB.getValue(RAT_Entry.inst_seq_id)
+                        value = STATE.ROB.getValue(STATE, RAT_Entry.inst_seq_id)
                         return (value, True, label)
                     else:
+                        print(label, "three")
                         # Map to ROB entry
                         return (RAT_Entry.inst_seq_id, False, label)
 
@@ -171,7 +175,7 @@ class ReseravationStation(object):
             self.Busy = False
             FU.dispatch(result)
 
-        def writeback_rtype(self, STATE, inst_seq_id, val):
+        def writeback_rtype_or_load(self, STATE, inst_seq_id, val):
             def writeback_update(value_entry):
                 (value_src, valid, label) = value_entry
                 if not valid and value_src == inst_seq_id:
@@ -225,10 +229,10 @@ class ReseravationStation(object):
         freeRSs[0].issue(STATE, inst, inst["inst_seq_id"])
         return True
 
-    def writeback_rtype(self, STATE, inst_seq_id, val):
+    def writeback_rtype_or_load(self, STATE, inst_seq_id, val):
         # For each RS entry, resolve unresolved operands (value entries) whos value correspond to the writeback of the current instruction
         for rs_entry in self.RSEntries:
-            rs_entry.writeback_rtype(STATE, inst_seq_id, val)
+            rs_entry.writeback_rtype_or_load(STATE, inst_seq_id, val)
 
 
 

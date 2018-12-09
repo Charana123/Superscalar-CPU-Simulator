@@ -16,6 +16,11 @@ class Debugger(object):
                 print("\n\n\n\n\n")
                 self.runCycle()
                 self.printAll()
+            elif cmd_op == "run":
+                while True:
+                    print("\n\n\n\n\n")
+                    self.runCycle()
+                    self.printAll()
             elif cmd_opd.startswith("pip"):
                 self.printPipeline(cmd_args)
             elif cmd_op.startswith("prog"):
@@ -99,7 +104,8 @@ class Debugger(object):
     # ========== INTERNAL FUNCTIONS =========================================
     def printProgram(self):
         print "========= PROGRAM =========="
-        print toString(self.STATE.PROGRAM)
+        for i, inst in enumerate(self.STATE.PROGRAM):
+            print(i, inst)
         print "============================"
 
     def printStack(self, cmd_args):

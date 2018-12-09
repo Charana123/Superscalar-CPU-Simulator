@@ -5,7 +5,7 @@
 # func main ()
 main:
 # Call fibonacci
-li $a0 c4
+li $a0 c2
 # Save return and jump
 sw $ra $sp c1
 addi $sp $sp c1
