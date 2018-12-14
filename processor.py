@@ -1,12 +1,11 @@
 import sys
-from branch_prediction import branch_predictor
+from branch_prediction import branch_predictor, BranchTargetAddressCache, BranchTargetInstructionCache
 import backend_components
 from functional import first, anyy, alll
 from state import State
 from util import getNextUUID, toString
 from consts import RTYPE_OPCODES, LOAD_OPCODES, STORE_OPCODES, COND_BRANCH_OPCODES, UNCOND_JUMP_OPCODES
 from debugger import Debugger
-
 
 def run():
     global STATE
@@ -56,8 +55,8 @@ def fetch():
     inst["pc"] = STATE.PC
     STATE.PIPELINE["decode"] = inst
 
-    # Optionally check BTB for target address
-
+    # Optionally check BTAC for target address
+    
 
 def decode():
     global STATE
