@@ -62,12 +62,13 @@ class Debugger(object):
         print "### Fetches instruction placed in PIPELINE"
         print "Fetch Instruction: %s" % toString(self.STATE.PIPELINE["decode"])
         print "### Speculatively takes/doesnt-taken branch"
-        self.printBTB()
 
     def printDecode(self):
         print "======== Decodes ========="
         print "### Decoded instruction placed in INSTRUCTION QUEUE"
         self.printInstructionQueue()
+        print "### BTIAC is updated by J, JAL and Branch instruction at decode"
+        self.printBTIAC()
 
     def printIssue(self):
         print "======== Issue ========"
@@ -87,6 +88,9 @@ class Debugger(object):
         self.printExecutionUnits()
         print "### Instructions that finish this cycle are placed in the PIPELINE"
         print "Writeback Instruction: %s" % toString(self.STATE.PIPELINE["writeback"])
+        print "### Update branch history and pattern table"
+        self.printBHB()
+        self.printPHT()
 
     def printWriteback(self):
         print "========= Writeback ========"
@@ -150,10 +154,16 @@ class Debugger(object):
     def printLoadStoreBuffer(self):
         print "LSQ: %s" % toString(self.STATE.LSQ)
 
-    def printBTB(self):
-        print "BTB: %s" % toString(self.STATE.BTB)
+    def printBTIAC(self):
+        print("BTIC: %s" % toString(self.STATE.BTIC))
+        print("BTAC: %s" % toString(self.STATE.BTAC))
 
+    def printBHB(self):
+        print("BHB: %s" % toString(self.STATE.BHB))
 
+    def printPHT(self):
+        print("PHT: %s" % toString(self.STATE.PHT))
+        pass
 
 
 

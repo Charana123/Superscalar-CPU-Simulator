@@ -3,6 +3,7 @@ li $t0 c5
 li $t1 c5
 beq $t0 $t1 label1
 
+
 label1:
 li $s0 c1
 # s0 = 1

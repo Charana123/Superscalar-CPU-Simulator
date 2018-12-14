@@ -1,5 +1,6 @@
 from util import toString
 from consts import RTYPE_OPCODES, STORE_OPCODES, LOAD_OPCODES, COND_BRANCH_OPCODES
+from branch_prediction import makePrediction, updatePrediction
 import abc
 
 class BaseUnit(object):
@@ -166,27 +167,30 @@ class BU(BaseUnit):
         if self.CYCLES == self.CYCLES_PER_OPERATION:
             self.FINISHED = True
             if self.inputt["opcode"] in COND_BRANCH_OPCODES:
-                pc = self.inputt["pc"]
+                branch_pc = self.inputt["pc"]
+                taken = makePrediction(branch_pc, STATE)
                 if((self.inputt["opcode"] == "beq" and self.inputt["src1"] == self.inputt["src2"]) or
                     (self.inputt["opcode"] == "bne" and self.inputt["src1"] != self.inputt["src2"]) or
                     (self.inputt["opcode"] == "bgt" and self.inputt["src1"] > self.inputt["src2"]) or
                     (self.inputt["opcode"] == "bge" and self.inputt["src1"] >= self.inputt["src2"]) or
                     (self.inputt["opcode"] == "blt" and self.inputt["src1"] < self.inputt["src2"]) or
                     (self.inputt["opcode"] == "ble" and self.inputt["src1"] <= self.inputt["src2"])):
+                    updatePrediction(branch_pc, True, STATE)
                     self.output = {
                         "inst_seq_id": self.inputt["inst_seq_id"],
                         "ttype": "branch",
-                        "correct_speculation": STATE.BTB.get(pc).taken
+                        "correct_speculation": taken
                     }
                 if((self.inputt["opcode"] == "beq" and not (self.inputt["src1"] == self.inputt["src2"])) or
                     (self.inputt["opcode"] == "bne" and not(self.inputt["src1"] != self.inputt["src2"])) or
                     (self.inputt["opcode"] == "bgt" and not(self.inputt["src1"] > self.inputt["src2"])) or
                     (self.inputt["opcode"] == "bge" and not(self.inputt["src1"] >= self.inputt["src2"])) or
                     (self.inputt["opcode"] == "ble" and not(self.inputt["src1"] <= self.inputt["src2"]))):
+                    updatePrediction(branch_pc, False, STATE)
                     self.output = {
                         "inst_seq_id": self.inputt["inst_seq_id"],
                         "ttype": "branch",
-                        "correct_speculation": not STATE.BTB.get(pc).taken
+                        "correct_speculation": not taken
                     }
             elif self.inputt["opcode"] == "noop":
                 self.output = {
@@ -197,7 +201,6 @@ class BU(BaseUnit):
                 # set pc and unstall pipeline
                 STATE.PC = self.inputt["label"] + 1
                 STATE.PIPELINE_STALLED = False
-                STATE.UNSTORED_JALS -= 1
                 self.output = {
                     "inst_seq_id": self.inputt["inst_seq_id"],
                     "ttype": "noop"

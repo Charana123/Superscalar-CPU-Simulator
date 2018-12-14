@@ -1,5 +1,6 @@
 from util import toString
 from functional import first, generate
+from branch_prediction import getLatestBranchHistory, getBTIAC
 from consts import REGISTER_MNEMONICS, RTYPE_OPCODES, STORE_OPCODES, LOAD_OPCODES, COND_BRANCH_OPCODES
 import abc
 
@@ -177,14 +178,12 @@ class ReorderBuffer(CircularBuffer):
                 # Update PC
                 STATE.PC = retire_rob_entry.pc
                 # Unstall Pipeline
-                STATE.PIPELINE_STALLED = False
-                # TODO
-                print("LSQ - BTB_Entry.REGISTER_ADDRESS_STACK_COPY", BTB_Entry.REGISTER_ADDRESS_STACK_COPY)
-#                # Update Return Address Stack
-#                STATE.REGISTER_ADDRESS_STACK = BTB_Entry.REGISTER_ADDRESS_STACK_COPY
+                STATE.PIPELINE_STALLED = True
                 # Flush Pipeline
-                self.flush()
-                STATE.LSQ.flush()
+                STATE.PIPELINE = {
+                    "decode": None,
+                    "writeback": None
+                }
                 raise ReorderBuffer.PipelineFlush()
         if retire_rob_entry.op_type == "branch":
             if not retire_rob_entry.Valid:
@@ -192,16 +191,19 @@ class ReorderBuffer(CircularBuffer):
             # The branch was incorrect predicted
             elif retire_rob_entry.Value == 0:
                 # Update PC
-                BTB_Entry = STATE.BTB.get(retire_rob_entry.pc)
-                STATE.PC = BTB_Entry.branch_pc + 1
+                taken = getLatestBranchHistory(retire_rob_entry.pc, STATE)
+                print("prediction fixed", taken)
+                if taken:
+                    TA, TI = getBTIAC(retire_rob_entry.pc, STATE)
+                    STATE.PC = TA + 2
+                    STATE.PIPELINE["decode"] = TI
+                else:
+                    STATE.PC = retire_rob_entry.pc + 1
+                print("prediction fixed, pc: %d" % STATE.PC)
                 # Unstall pipeline if stalled by a previous (but now flushed) instruction
                 STATE.PIPELINE_STALLED = False
-                # Update Return Address Stack
-                print("ROB - BTB_Entry.REGISTER_ADDRESS_STACK_COPY", BTB_Entry.REGISTER_ADDRESS_STACK_COPY)
-                STATE.REGISTER_ADDRESS_STACK = BTB_Entry.REGISTER_ADDRESS_STACK_COPY
-                # Flush Pipeline
-                self.flush()
-                STATE.LSQ.flush()
+                # Flush pipeline
+                STATE.PIPELINE["writeback"] = None
                 raise ReorderBuffer.PipelineFlush()
             else:
                 return True

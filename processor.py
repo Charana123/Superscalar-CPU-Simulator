@@ -1,5 +1,5 @@
 import sys
-from branch_prediction import branch_predictor
+from branch_prediction import makePrediction, getBTIAC, createBTIACEntries, deleteBTIACEntries
 import backend_components
 from functional import first, anyy, alll
 from state import State
@@ -21,6 +21,7 @@ def run():
 def runCycle():
     global STATE
 
+    print("PC: %d" % STATE.PC)
     should_exit = commit()
     writeback()
     execute()
@@ -43,6 +44,10 @@ def runCycle():
 def fetch():
     global STATE
 
+    # Stall the pipeline if end of function/file reached
+    if STATE.PC >= len(STATE.PROGRAM) or not isinstance(STATE.PROGRAM[STATE.PC], dict):
+        STATE.PIPELINE_STALLED = True
+
     # if pipeline is stalled, skip fetch
     if STATE.PIPELINE_STALLED:
         STATE.PIPELINE["decode"] = None
@@ -57,17 +62,19 @@ def fetch():
 
     # Check BTAC and BTIC to get TA and TI ["J", "JAL"] (if they exist)
     # otherwise the [J, JAL] instruction is sent to decode
-    TAI = getBTIAC(inst["pc"])
-    if TAI is not None:
-        TA, TI = TAI
-        STATE.PC = TA + 1
-        STATE.PIPELINE["decode"] = TI
+    if inst["opcode"] in ["j", "jal"]:
+        TAI = getBTIAC(inst["pc"], STATE)
+        if TAI is not None:
+            TA, TI = TAI
+            STATE.PC = TA + 1
+            STATE.PIPELINE["decode"] = TI
 
 
 def decode():
     global STATE
 
     inst = STATE.PIPELINE["decode"]
+    print("decode: %s" % str(inst))
     if inst is None:
         return
 
@@ -76,63 +83,49 @@ def decode():
     if inst["opcode"] == "j":
         # Create BTAC and BTIC entries (if they do not exist) for [J, JAL]
         branch_pc, TA, TI = inst["pc"], inst["arg1"], dict(STATE.PROGRAM[inst["arg1"] + 1])
-        createBTIACEntries(branch_pc, TA, TI)
+        TI["inst_seq_id"] = getNextUUID()
+        TI["pc"] = inst["arg1"] + 1
+        createBTIACEntries(branch_pc, TA, TI, STATE)
         # Update PC
         STATE.PC = inst["arg1"] + 1
         STATE.RETIRED_INSTRUCTIONS += 1 # No ROB entry for jump
+
     elif inst["opcode"] == "jal":
-#        # Add to RAS (Return Address Stack) if not full
-#        if len(STATE.REGISTER_ADDRESS_STACK) < STATE.REGISTER_ADDRESS_STACK_MAX:
-#            STATE.REGISTER_ADDRESS_STACK.append(inst["pc"])
-#            STATE.RETIRED_INSTRUCTIONS += 1 # ROB entry for jump and link if RAS is full
-#        else:
-#            STATE.UNSTORED_JALS += 1
-#            # If jump and link cannot store to RAS, return target stored in $ra
-#            STATE.INSTRUCTION_QUEUE.push(inst)
         # Create BTAC and BTIC entries (if they do not exist) for [J, JAL]
         branch_pc, TA, TI = inst["pc"], inst["arg1"], dict(STATE.PROGRAM[inst["arg1"] + 1])
-        createBTIACEntries(branch_pc, TA, TI)
+        TI["inst_seq_id"] = getNextUUID()
+        TI["pc"] = inst["arg1"] + 1
+        createBTIACEntries(branch_pc, TA, TI, STATE)
         # Update PC and $ra
-        STATE.INSTRUCTION_QUEUE.push(inst)
         STATE.PC = inst["arg1"] + 1
+        STATE.INSTRUCTION_QUEUE.push(inst)
+
     elif inst["opcode"] in COND_BRANCH_OPCODES:
+        # Create TA entry (for ROB commit, branch recovery)
+        pc, TA, TI = inst["pc"], inst["arg3"], dict(STATE.PROGRAM[inst["arg3"] + 1])
+        TI["inst_seq_id"] = getNextUUID()
+        TI["pc"] = inst["arg3"] + 1
+        createBTIACEntries(pc, TA, TI, STATE)
         # Make a branch speculation (ie. always
-        taken = makePrediction(inst, STATE)
+        taken = makePrediction(inst["pc"], STATE)
         if taken:
-            TAI = getBTIAC(inst["pc"])
-            # if branch has been previously seen - set PC, add to IQ
-            if TAI is not None:
-                TA, TI = TAI
-                STATE.PC = TA + 1
-            # if branch hasn't been previously seen - create BTAC and BTIC entries
-            else:
-                # Create BTAC and BTIC entries (if they do not exist) for Branches
-                branch_pc, TA, TI = inst["pc"], inst["arg3"], None
-                createBTIACEntries(branch_pc, TA, TI)
+            STATE.PC = inst["arg3"] + 1
             STATE.INSTRUCTION_QUEUE.push(inst)
         else:
             STATE.PC = inst["pc"] + 1
             STATE.INSTRUCTION_QUEUE.push(inst)
-            # delete BTIAC entries (if they aren't going to be used)
-            # deleteBTIACEntries(branch_pc)
+
     elif inst["opcode"] == "jr":
         # Get $ra
-        STATE.PIPELINE_STALLED = True
-        STATE.INSTRUCTION_QUEUE.push(inst)
-#        # If RAS full, stall, else pop return address and continue
-#        if STATE.UNSTORED_JALS != 0:
-#            STATE.PIPELINE_STALLED = True
-#            # if return jump cannot pop from RAS, load value of $ra from load pipeline
-#            STATE.INSTRUCTION_QUEUE.push(inst)
-#        else:
-#            print("STATE.REGISTER_ADDRESS_STACK", STATE.REGISTER_ADDRESS_STACK)
-#            STATE.PC = STATE.REGISTER_ADDRESS_STACK.pop() + 1
-#            print("ras", STATE.PC)
-#        STATE.RETIRED_INSTRUCTIONS += 1 # No ROB entry for jump return
-    elif inst["opcode"] in ["syscall"]:
-        STATE.PIPELINE_STALLED = True
-        STATE.INSTRUCTION_QUEUE.push(inst)
         print("stalled2")
+        STATE.PIPELINE_STALLED = True
+        STATE.INSTRUCTION_QUEUE.push(inst)
+
+    elif inst["opcode"] in ["syscall"]:
+        print("stalled3")
+        STATE.PIPELINE_STALLED = True
+        STATE.INSTRUCTION_QUEUE.push(inst)
+
     else:
         # Push to instruction queue
         STATE.INSTRUCTION_QUEUE.push(inst)
@@ -220,11 +213,9 @@ def commit():
         STATE.ROB.commit(STATE)
         return False
     except backend_components.ReorderBuffer.PipelineFlush:
-        # Flush Pipeline
-        STATE.PIPELINE = {
-            "decode": None,
-            "writeback": None
-        }
+        # Flush ROB and LSQ
+        STATE.ROB.flush()
+        STATE.LSQ.flush()
         # Flush Instruction Queue
         STATE.INSTRUCTION_QUEUE.flush()
         # Reset the RAT to point to physical registers (i.e. flush)
