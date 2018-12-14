@@ -1,5 +1,5 @@
 import sys
-from branch_prediction import branch_predictor, BranchTargetAddressCache, BranchTargetInstructionCache
+from branch_prediction import branch_predictor
 import backend_components
 from functional import first, anyy, alll
 from state import State
@@ -55,8 +55,14 @@ def fetch():
     inst["pc"] = STATE.PC
     STATE.PIPELINE["decode"] = inst
 
-    # Optionally check BTAC for target address
-    
+    # Check BTAC and BTIC to get TA and TI ["J", "JAL"] (if they exist)
+    # otherwise the [J, JAL] instruction is sent to decode
+    TAI = getBTIAC(inst["pc"])
+    if TAI is not None:
+        TA, TI = TAI
+        STATE.PC = TA + 1
+        STATE.PIPELINE["decode"] = TI
+
 
 def decode():
     global STATE
@@ -68,6 +74,10 @@ def decode():
     # Instruction opcode is made avaialable at the decode stage
     print("STATE.UNSTORED_JALS", STATE.UNSTORED_JALS)
     if inst["opcode"] == "j":
+        # Create BTAC and BTIC entries (if they do not exist) for [J, JAL]
+        branch_pc, TA, TI = inst["pc"], inst["arg1"], dict(STATE.PROGRAM[inst["arg1"] + 1])
+        createBTIACEntries(branch_pc, TA, TI)
+        # Update PC
         STATE.PC = inst["arg1"] + 1
         STATE.RETIRED_INSTRUCTIONS += 1 # No ROB entry for jump
     elif inst["opcode"] == "jal":
@@ -79,18 +89,34 @@ def decode():
 #            STATE.UNSTORED_JALS += 1
 #            # If jump and link cannot store to RAS, return target stored in $ra
 #            STATE.INSTRUCTION_QUEUE.push(inst)
+        # Create BTAC and BTIC entries (if they do not exist) for [J, JAL]
+        branch_pc, TA, TI = inst["pc"], inst["arg1"], dict(STATE.PROGRAM[inst["arg1"] + 1])
+        createBTIACEntries(branch_pc, TA, TI)
+        # Update PC and $ra
         STATE.INSTRUCTION_QUEUE.push(inst)
         STATE.PC = inst["arg1"] + 1
     elif inst["opcode"] in COND_BRANCH_OPCODES:
-        # Make a branch speculation (ie. always taken)
-        taken = branch_predictor(inst, STATE)
+        # Make a branch speculation (ie. always
+        taken = makePrediction(inst, STATE)
         if taken:
-            STATE.PC = inst["arg3"] + 1
+            TAI = getBTIAC(inst["pc"])
+            # if branch has been previously seen - set PC, add to IQ
+            if TAI is not None:
+                TA, TI = TAI
+                STATE.PC = TA + 1
+            # if branch hasn't been previously seen - create BTAC and BTIC entries
+            else:
+                # Create BTAC and BTIC entries (if they do not exist) for Branches
+                branch_pc, TA, TI = inst["pc"], inst["arg3"], None
+                createBTIACEntries(branch_pc, TA, TI)
             STATE.INSTRUCTION_QUEUE.push(inst)
         else:
-            print("mistake")
-            exit()
+            STATE.PC = inst["pc"] + 1
+            STATE.INSTRUCTION_QUEUE.push(inst)
+            # delete BTIAC entries (if they aren't going to be used)
+            # deleteBTIACEntries(branch_pc)
     elif inst["opcode"] == "jr":
+        # Get $ra
         STATE.PIPELINE_STALLED = True
         STATE.INSTRUCTION_QUEUE.push(inst)
 #        # If RAS full, stall, else pop return address and continue

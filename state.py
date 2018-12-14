@@ -2,7 +2,7 @@ import assembler
 from frontend_components import InstructionQueue, ReseravationStation, RegisterAliasTable
 from backend_components import ReorderBuffer, LoadStoreQueue, CommonDataBus
 from execution_units import ALU, LSU, BU
-from branch_prediction import BranchTargetBuffer
+from branch_prediction import BranchTargetAddressCache, BranchTargetInstructionCache, LocalBranchHistoryBuffers, PatternHistoryTables, RegisterAddressStackCheckpoint
 
 class State(object):
 
@@ -32,5 +32,14 @@ class State(object):
         self.LSQ = LoadStoreQueue(100)
         self.INSTRUCTION_QUEUE = InstructionQueue()
         self.CDB = CommonDataBus(self)
-        self.BTB = BranchTargetBuffer()
+
+        self.BTAC = BranchTargetAddressCache()
+        self.BTIC = BranchTargetInstructionCache()
+        self.BHB = LocalBranchHistoryBuffers()
+        self.PHT = PatternHistoryTables()
+
+
+
+
+
 

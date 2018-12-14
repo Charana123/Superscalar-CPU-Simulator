@@ -3,6 +3,65 @@ from util import toString
 from consts import N_BIT_HISTORY
 
 
+class BranchTargetAddressCache(object):
+
+    class BranchTargetAddressCacheEntry(object):
+        def __init__(self, branch_pc):
+            self.branch_pc = branch_pc
+
+        def setTargetAddress(TA):
+            self.TA = TA
+
+    def __init__(self, size=32):
+        self.size = size
+        self.entries = []
+
+    def getBTACEntry(self, branch_pc):
+        return first(lambda entry: entry.branch_pc == branch_pc, self.entries)
+
+    def createBTACEntry(self, branch_pc, TA):
+        BTAEntry = self.BranchTargetAddressCacheEntry(branch_pc)
+        BTAEntry.setTargetAddress(TA)
+        if len(self.entries) == self.size:
+            self.entries.pop(0)
+        self.entries.append(BTAEntry)
+
+    def deleteBTACEntry(self, branch_pc):
+        entry = first(lambda (i, entry): entry.branch_pc == branch_pc, enumerate(self.entries))
+        if entry:
+            i = entry[0]
+            self.entries.pop(i)
+
+class BranchTargetInstructionCache(object):
+
+    class BranchTargetInstructionEntry(object):
+        def __init__(self, branch_pc):
+            self.branch_pc = branch_pc
+
+        def setTargetInstruction(TI):
+            self.TI = TI
+
+    def __init__(self, size=32):
+        self.size = size
+        self.entries = generate(self.BranchTargetInstructionEntry, self.size)
+
+    def getBTICEntry(self, branch_pc):
+        return first(lambda entry: entry.branch_pc == branch_pc, self.entries)
+
+    def createBTICEntry(self, branch_pc, TI):
+        BTIEntry = self.BranchTargetInstructionEntry(branch_pc)
+        BTIEntry.setTargetInstruction(TI)
+        if len(self.entries) == self.size:
+            self.entries.pop(0)
+        self.entries.append(BTIEntry)
+
+    def deleteBTICEntry(self, branch_pc):
+        entry = first(lambda (i, entry): entry.branch_pc == branch_pc, enumerate(self.entries))
+        if entry:
+            i = entry[0]
+            self.entries.pop(i)
+
+
 class LocalBranchHistoryBuffers(object):
 
     class LocalBranchHistoryBufferEntry(object):
@@ -86,40 +145,22 @@ class PatternHistoryTables(object):
         return self.__str__()
 
 
-class BranchTargetBuffer():
-
-    def __init__(self):
-        self.entries = {}
-
-    def __str__(self):
-        return toString(self.entries.items())
-
-    def __repr__(self):
-        return self.__str__()
-
-    def get(self, pc):
-        return self.entries[pc]
-
-    def create(self, inst, branch_pc):
-        self.entries[branch_pc] = inst["arg3"]
-
-
-class RegisterAddressStackCheckpoint(object):
-
-    def __init__(self):
-        self.entries = {}
-
-    def speculativeSave(self, branch_inst_seq_id, REGISTER_ADDRESS_STACK):
-        self.entries[branch_inst_seq_id] = list(REGISTER_ADDRESS_STACK)
-
-    def get(self, branch_inst_seq_id):
-        return self.entries[branch_inst_seq_id]
+#class RegisterAddressStackCheckpoint(object):
+#
+#    def __init__(self):
+#        self.entries = {}
+#
+#    def speculativeSave(self, branch_inst_seq_id, REGISTER_ADDRESS_STACK):
+#        self.entries[branch_inst_seq_id] = list(REGISTER_ADDRESS_STACK)
+#
+#    def get(self, branch_inst_seq_id):
+#        return self.entries[branch_inst_seq_id]
 
 
 def makePrediction(inst, branch_pc, STATE):
     branch_inst_seq_id = inst["inst_seq_id"]
-    # Create RAS Checkpoint for each branch instruction
-    STATE.RAS.speculativeSave(branch_inst_seq_id, STATE.REGISTER_ADDRESS_STACK)
+#    # Create RAS Checkpoint for each branch instruction
+#    STATE.RAS.speculativeSave(branch_inst_seq_id, STATE.REGISTER_ADDRESS_STACK)
     # Dynamic prediction - If BTB entry exists (i.e. branch previously speculated)
     BHB_Entry = STATE.BHB.getBranchHistory(branch_pc)
     if BHB_Entry is not None:
@@ -139,43 +180,25 @@ def updatePrediction(inst, branch_pc, taken):
     BHB_Entry = STATE.BHB.getBranchHistory(branch_pc)
     STATE.PHT.update(branch_pc, BHB_Entry, taken)
 
+############# Branch Target Address and Branch Target Instruction Manipulation ###############
+def deleteBTIACEntries(branch_pc):
+    deleteBTACEntry()
+    deleteBTICEntry()
 
-def BranchTargetAddressCache(object):
+def createBTIACEntries(branch_pc, TA, TI):
+    createBTACEntry(branch_pc, TA)
+    createBTIEntry(branch_pc, TI)
 
-    class BranchTargetAddressCacheEntry(object):
-        def __init__(self, branch_pc):
-            self.branch_pc = branch_pc
-
-        def setTargetAddress(target_address):
-            self.target_address = target_address
-
-    def __init__(self, size=32):
-        self.size = size
-        self.entries = generate(self.BranchTargetAddressEntry, self.size)
-
-    def getBTACEntry(self, branch_pc):
-        return first(lambda entry: entry.branch_pc == branch_pc, self.entries)
-
-
-
-class BranchTargetInstructionCache(object):
-
-    class BranchTargetInstructionEntry(object):
-        def __init__(self, branch_pc):
-            self.branch_pc = branch_pc
-
-        def setInstructions(insts):
-            self.insts = insts
-
-    def __init__(self, size=32):
-        self.size = size
-        self.entries = generate(self.BranchTargetInstructionEntry, self.size)
-
-    def getBTICEntry(self, branch_pc):
-        return first(lambda entry: entry.branch_pc == branch_pc, self.entries)
-
-
-
+def getBTIAC(branch_pc):
+    BTACEntry = STATE.BTAC.getBTACEntry(inst["pc"])
+    # If BTAC exists, go to TA and set pipeline decode to TI
+    if BTACEntry is not None:
+        TA = BTACEntry.TA + 1
+        BTICEntry = STATE.BTIC.getBTICEntry(inst["pc"])
+        TI = dict(BTICEntry.TI)
+        return TA, TI
+    else:
+        return None
 
 
 
