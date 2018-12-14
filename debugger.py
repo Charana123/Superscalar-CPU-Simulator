@@ -14,12 +14,16 @@ class Debugger(object):
             cmd_args = cmd[1:]
             if cmd_op == "n":
                 print("\n\n\n\n\n")
-                self.runCycle()
+                ok = self.runCycle()
+                if ok is not None and ok:
+                    return
                 self.printAll()
             elif cmd_op == "run":
                 while True:
                     print("\n\n\n\n\n")
-                    self.runCycle()
+                    ok = self.runCycle()
+                    if ok is not None and ok:
+                        return
                     self.printAll()
             elif cmd_opd.startswith("pip"):
                 self.printPipeline(cmd_args)
@@ -51,6 +55,7 @@ class Debugger(object):
         self.printExecute()
         self.printWriteback()
         self.printCommit()
+        print("PC", self.STATE.PC)
 
     def printFetch(self):
         print "========= Fetch ========="

@@ -77,6 +77,10 @@ class RegisterAliasTable(object):
             dest_reg = inst["arg1"]
             inst_seq_id = inst["inst_seq_id"]
             self.entries[dest_reg].issue(inst_seq_id)
+        if inst["opcode"] == "jal":
+            inst_seq_id = inst["inst_seq_id"]
+
+            self.entries["$ra"].issue(inst_seq_id)
 
     def commit(self, inst_seq_id):
         dependant_entries = [entry for entry in self.entries.items() if entry[1].inst_seq_id == inst_seq_id]
@@ -124,6 +128,15 @@ class ReseravationStation(object):
             self.Busy = True
             self.Op = inst["opcode"]
 
+            if inst["opcode"] == "noop":
+                tags = []
+                values = []
+            if inst["opcode"] == "jr":
+                tags = []
+                values = [("$ra", "label")]
+            if inst["opcode"] == "jal":
+                tags = [(inst["pc"], "pc")]
+                values = []
             if inst["opcode"] in RTYPE_OPCODES:
                 tags = [(inst["arg1"], "dest")]
                 values = [(inst["arg2"], "src1"), (inst["arg3"], "src2")]

@@ -4,7 +4,7 @@ import backend_components
 from functional import first, anyy, alll
 from state import State
 from util import getNextUUID, toString
-from consts import RTYPE_OPCODES, LOAD_OPCODES, STORE_OPCODES, COND_BRANCH_OPCODES
+from consts import RTYPE_OPCODES, LOAD_OPCODES, STORE_OPCODES, COND_BRANCH_OPCODES, UNCOND_JUMP_OPCODES
 from debugger import Debugger
 
 
@@ -14,13 +14,14 @@ def run():
     for i, inst in enumerate(STATE.PROGRAM):
         print(i, inst)
     while True:
-        runCycle()
+        ok = runCycle()
+        if ok is not None and ok:
+            return
 
 
 def runCycle():
     global STATE
 
-    print("PC: %d" % STATE.PC)
     should_exit = commit()
     writeback()
     execute()
@@ -28,13 +29,13 @@ def runCycle():
     issue()
     decode()
     fetch()
+    print("PC: %d" % STATE.PC)
     if should_exit:
         print("Program Returned Successfully")
         print("STATE.RETIRED_INSTRUCTIONS = %d" % STATE.RETIRED_INSTRUCTIONS)
         print("STATE.TOTAL_CYCLES = %d" % STATE.TOTAL_CYCLES)
         print("IPC = %f" % (float(STATE.RETIRED_INSTRUCTIONS)/STATE.TOTAL_CYCLES))
-        exit()
-        return
+        return True
     STATE.TOTAL_CYCLES += 1
     if not STATE.PIPELINE_STALLED:
         STATE.PC += 1
@@ -43,75 +44,70 @@ def runCycle():
 def fetch():
     global STATE
 
-    def jump(inst):
-        if inst["opcode"] == "jal":
-            if len(STATE.REGISTER_ADDRESS_STACK) < STATE.REGISTER_ADDRESS_STACK_MAX:
-                STATE.REGISTER_ADDRESS_STACK.append(STATE.PC + 1)
-                print("REGISTER_ADDRESS_STACK = %s" % str(STATE.REGISTER_ADDRESS_STACK))
-                STATE.REGISTER_ADDRESS_STACK_FULL = False
-            else:
-                STATE.REGISTER_ADDRESS_STACK_FULL = True
-        else:
-            STATE.RETIRED_INSTRUCTIONS += 1
-        return inst["arg1"]
-
+    # if pipeline is stalled, skip fetch
     if STATE.PIPELINE_STALLED:
         STATE.PIPELINE["decode"] = None
         return
-    if STATE.PC != -1:
-        # jumps
-        print("STATE.PROGRAM[STATE.PC]", STATE.PROGRAM[STATE.PC])
-        inst = dict(STATE.PROGRAM[STATE.PC])
-        if inst["opcode"] in ["j", "jal"]:
-            STATE.PC = jump(inst)
-            return
-        # non-jumps
-        inst_seq_id = getNextUUID()
-        inst["inst_seq_id"] = inst_seq_id
-        inst["pc"] = STATE.PC
-        STATE.PIPELINE["decode"] = inst
-        # Speculatively execute conditional branches
-        if inst["opcode"] in ["beq", "bne", "bgt", "bge", "blt", "ble"]:
-            taken = branch_predictor(inst, STATE.PC, STATE)
-            if taken:
-                print("taken")
-                STATE.PC = inst["arg3"]
-            else:
-                print("not taken")
-        if inst["opcode"] == "syscall":
-            STATE.PIPELINE_STALLED = True
-            return
 
-    # If previous lookahead couldn't make a prediction but the end of the function is reached
-    if len(STATE.PROGRAM) == (STATE.PC + 1) or not isinstance(STATE.PROGRAM[STATE.PC + 1], dict):
-        STATE.PIPELINE_STALLED = True
-        return
-    # jump lookahead
-    lookahead = dict(STATE.PROGRAM[STATE.PC + 1])
-    if lookahead["opcode"] in ["j", "jal"]:
-        STATE.PC = jump(lookahead)
+    # fetch next instruction
+    inst = dict(STATE.PROGRAM[STATE.PC])
+    inst_seq_id = getNextUUID()
+    inst["inst_seq_id"] = inst_seq_id
+    inst["pc"] = STATE.PC
+    STATE.PIPELINE["decode"] = inst
 
+    # Optionally check BTB for target address
 
 
 def decode():
     global STATE
 
-    # Decodes byte instruction to control signals for the rest of the pipeline
-    # Already decoded (by assembler)
-
     inst = STATE.PIPELINE["decode"]
     if inst is None:
         return
-    # Resolve RETURN JUMP instructions that requires register lookup (so can only be performed during decode)
-    # Do not push to Instruction Queue, wait for next fetch cycle where it the jump return target will be fetched
-    if inst["opcode"] == "jr":
-        if STATE.REGISTER_ADDRESS_STACK_FULL:
-            STATE.PIPELINE_STALLED = True
+
+    # Instruction opcode is made avaialable at the decode stage
+    print("STATE.UNSTORED_JALS", STATE.UNSTORED_JALS)
+    if inst["opcode"] == "j":
+        STATE.PC = inst["arg1"] + 1
+        STATE.RETIRED_INSTRUCTIONS += 1 # No ROB entry for jump
+    elif inst["opcode"] == "jal":
+#        # Add to RAS (Return Address Stack) if not full
+#        if len(STATE.REGISTER_ADDRESS_STACK) < STATE.REGISTER_ADDRESS_STACK_MAX:
+#            STATE.REGISTER_ADDRESS_STACK.append(inst["pc"])
+#            STATE.RETIRED_INSTRUCTIONS += 1 # ROB entry for jump and link if RAS is full
+#        else:
+#            STATE.UNSTORED_JALS += 1
+#            # If jump and link cannot store to RAS, return target stored in $ra
+#            STATE.INSTRUCTION_QUEUE.push(inst)
+        STATE.INSTRUCTION_QUEUE.push(inst)
+        STATE.PC = inst["arg1"] + 1
+    elif inst["opcode"] in COND_BRANCH_OPCODES:
+        # Make a branch speculation (ie. always taken)
+        taken = branch_predictor(inst, STATE)
+        if taken:
+            STATE.PC = inst["arg3"] + 1
+            STATE.INSTRUCTION_QUEUE.push(inst)
         else:
-            STATE.PC = STATE.REGISTER_ADDRESS_STACK.pop() + 1
-            print("pop")
-            STATE.RETIRED_INSTRUCTIONS += 1
-            STATE.PIPELINE_STALLED = False
+            print("mistake")
+            exit()
+    elif inst["opcode"] == "jr":
+        STATE.PIPELINE_STALLED = True
+        STATE.INSTRUCTION_QUEUE.push(inst)
+#        # If RAS full, stall, else pop return address and continue
+#        if STATE.UNSTORED_JALS != 0:
+#            STATE.PIPELINE_STALLED = True
+#            # if return jump cannot pop from RAS, load value of $ra from load pipeline
+#            STATE.INSTRUCTION_QUEUE.push(inst)
+#        else:
+#            print("STATE.REGISTER_ADDRESS_STACK", STATE.REGISTER_ADDRESS_STACK)
+#            STATE.PC = STATE.REGISTER_ADDRESS_STACK.pop() + 1
+#            print("ras", STATE.PC)
+#        STATE.RETIRED_INSTRUCTIONS += 1 # No ROB entry for jump return
+    elif inst["opcode"] in ["syscall"]:
+        STATE.PIPELINE_STALLED = True
+        STATE.INSTRUCTION_QUEUE.push(inst)
+        print("stalled2")
     else:
         # Push to instruction queue
         STATE.INSTRUCTION_QUEUE.push(inst)
@@ -128,7 +124,7 @@ def issue():
     # Abort is no execution unit is free
     if (inst["opcode"] in RTYPE_OPCODES and len(filter(lambda alu: not alu.OCCUPIED, STATE.ALUs)) == 0) or \
          (inst["opcode"] in LOAD_OPCODES + STORE_OPCODES and len(filter(lambda lsu: not lsu.OCCUPIED, STATE.LSUs)) == 0) or \
-         (inst["opcode"] in COND_BRANCH_OPCODES + ["syscall"] and len(filter(lambda bu: not bu.OCCUPIED, STATE.BUs)) == 0):
+         (inst["opcode"] in COND_BRANCH_OPCODES + ["jr", "jal", "syscall"] and len(filter(lambda bu: not bu.OCCUPIED, STATE.BUs)) == 0):
             return
 
     STATE.INSTRUCTION_QUEUE.pop()
@@ -137,8 +133,7 @@ def issue():
         STATE.ALU_RS.issue(STATE, inst)
     if inst["opcode"] in LOAD_OPCODES + STORE_OPCODES:
         STATE.LSU_RS.issue(STATE, inst)
-    if inst["opcode"] in COND_BRANCH_OPCODES + ["syscall"]:
-        print("syscall issued")
+    if inst["opcode"] in COND_BRANCH_OPCODES + ["noop", "jr", "jal", "syscall"]:
         STATE.BU_RS.issue(STATE, inst)
     # create ROB entry
     STATE.ROB.issue(STATE, inst)
@@ -200,6 +195,11 @@ def commit():
         STATE.ROB.commit(STATE)
         return False
     except backend_components.ReorderBuffer.PipelineFlush:
+        # Flush Pipeline
+        STATE.PIPELINE = {
+            "decode": None,
+            "writeback": None
+        }
         # Flush Instruction Queue
         STATE.INSTRUCTION_QUEUE.flush()
         # Reset the RAT to point to physical registers (i.e. flush)
@@ -213,14 +213,15 @@ def commit():
     except backend_components.ReorderBuffer.SyscallExit:
         return True
 
-
-if __name__ == "__main__":
+def runProgram(filename):
     global STATE
-    filename = sys.argv[1]
     STATE = State(filename)
 
     # run()
     Debugger(STATE, runCycle).run()
+
+if __name__ == "__main__":
+    runProgram(sys.argv[1])
 
 
 

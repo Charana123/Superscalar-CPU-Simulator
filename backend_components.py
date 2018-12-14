@@ -131,6 +131,9 @@ class ReorderBuffer(CircularBuffer):
         if inst["opcode"] in RTYPE_OPCODES:
             vacant_rob_entry.op_type = "r_type"
             vacant_rob_entry.Areg = inst["arg1"]
+        elif inst["opcode"] == "jal":
+            vacant_rob_entry.op_type = "r_type"
+            vacant_rob_entry.Areg = "$ra"
         elif inst["opcode"] in LOAD_OPCODES + STORE_OPCODES:
             STATE.LSQ.issue(STATE, inst)
             if inst["opcode"] == "lw":
@@ -141,8 +144,10 @@ class ReorderBuffer(CircularBuffer):
             vacant_rob_entry.op_type = "syscall"
         elif inst["opcode"] in COND_BRANCH_OPCODES:
             vacant_rob_entry.op_type = "branch"
+        elif inst["opcode"] in ["jr", "noop"]:
+            vacant_rob_entry.op_type = "noop"
         else:
-            print "cannot issue opcode: %s" % vacant_rob_entry.op_type
+            print "cannot issue opcode: %s" % inst["opcode"]
             exit()
         return True
 
@@ -158,16 +163,25 @@ class ReorderBuffer(CircularBuffer):
             super(ReorderBuffer.SyscallExit, self).__init__("SYSCALL Exit")
 
     def commit_impl(self, STATE):
+
+        # Instruction is retired
+        STATE.RETIRED_INSTRUCTIONS += 1
+
         retire_rob_entry = self.entries[self.commit_ptr]
         if retire_rob_entry.op_type in ["load", "store"]:
             try:
                 ok = STATE.LSQ.commit(STATE)
                 return ok
             except LoadStoreQueue.LSQViolation:
+                print("LSQViolation")
                 # Update PC
                 STATE.PC = retire_rob_entry.pc
                 # Unstall Pipeline
                 STATE.PIPELINE_STALLED = False
+                # TODO
+                print("LSQ - BTB_Entry.REGISTER_ADDRESS_STACK_COPY", BTB_Entry.REGISTER_ADDRESS_STACK_COPY)
+#                # Update Return Address Stack
+#                STATE.REGISTER_ADDRESS_STACK = BTB_Entry.REGISTER_ADDRESS_STACK_COPY
                 # Flush Pipeline
                 self.flush()
                 STATE.LSQ.flush()
@@ -177,20 +191,14 @@ class ReorderBuffer(CircularBuffer):
                 return False
             # The branch was incorrect predicted
             elif retire_rob_entry.Value == 0:
-                # Update BTB entry
-                STATE.BTB.update(retire_rob_entry.pc)
                 # Update PC
                 BTB_Entry = STATE.BTB.get(retire_rob_entry.pc)
-                if BTB_Entry.taken:
-                    print("taken", BTB_Entry.target_address)
-                    STATE.PC = BTB_Entry.target_address + 1
-                else:
-                    print("not taken", BTB_Entry.branch_pc)
-                    STATE.PC = BTB_Entry.branch_pc + 1
-                # Update Return Address Stack
-                STATE.REGISTER_ADDRESS_STACK = BTB_Entry.REGISTER_ADDRESS_STACK_COPY
-                # Unstall Pipeline
+                STATE.PC = BTB_Entry.branch_pc + 1
+                # Unstall pipeline if stalled by a previous (but now flushed) instruction
                 STATE.PIPELINE_STALLED = False
+                # Update Return Address Stack
+                print("ROB - BTB_Entry.REGISTER_ADDRESS_STACK_COPY", BTB_Entry.REGISTER_ADDRESS_STACK_COPY)
+                STATE.REGISTER_ADDRESS_STACK = BTB_Entry.REGISTER_ADDRESS_STACK_COPY
                 # Flush Pipeline
                 self.flush()
                 STATE.LSQ.flush()
@@ -205,6 +213,8 @@ class ReorderBuffer(CircularBuffer):
                 STATE.RAT.commit(retire_rob_entry.inst_seq_id)
                 print "REGISTER_FILE[REGISTER_MNEMONICS[%s]] = %d" % (retire_rob_entry.Areg, retire_rob_entry.Value)
                 return True
+        if retire_rob_entry.op_type == "noop":
+            return True
         if retire_rob_entry.op_type == "syscall":
             raise ReorderBuffer.SyscallExit
 
@@ -333,6 +343,8 @@ class CommonDataBus(object):
         inst_seq_id = writeback["inst_seq_id"]
         ttype = writeback["ttype"]
 
+        if ttype == "noop":
+            pass
         if ttype == "syscall":
             syscall_type = writeback["syscall_type"]
             # Fill ROB entries of syscall instructions

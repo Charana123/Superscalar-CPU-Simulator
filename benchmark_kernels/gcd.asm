@@ -9,8 +9,7 @@ j loop
 
 loop:
 # $s3 = arg 1 % arg2
-div $s1 $s2
-mfhi $s3
+mod $s3 $s1 $s2
 # set arg1 to arg2
 move $s1 $s2
 # set arg2 to remainder

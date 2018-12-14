@@ -10,7 +10,7 @@ class State(object):
         self.PROGRAM = assembler.readProgram(filename)
         self.RETIRED_INSTRUCTIONS = 0
         self.TOTAL_CYCLES = 0
-        self.PC = -1
+        self.PC = 0
         self.REGISTER_FILE = [0] * 34
         self.STACK = [0] * 100
         self.PIPELINE_STALLED = False
@@ -20,7 +20,7 @@ class State(object):
         }
         self.REGISTER_ADDRESS_STACK = []
         self.REGISTER_ADDRESS_STACK_MAX = 16
-        self.REGISTER_ADDRESS_STACK_FULL = False
+        self.UNSTORED_JALS = 0
         self.ALUs = [ALU(), ALU()]
         self.ALU_RS = ReseravationStation(self.ALUs, size=5)
         self.BUs = [BU()]

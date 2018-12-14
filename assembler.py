@@ -1,4 +1,7 @@
 import sys
+from consts import UNCOND_JUMP_OPCODES, COND_BRANCH_OPCODES
+import itertools
+from util import toString
 
 
 def readProgram(filename):
@@ -9,42 +12,7 @@ def readProgram(filename):
         lines = filter(lambda l: l[0] != '#', lines)
         lines = ["jal main", "addi $v0 $zero c10", "syscall"] + lines
 
-    # Collect Labels
     isLabel = lambda line: line.split(" ")[0][-1] == ':'
-    toLabel = lambda line: line.split(" ")[0][:-1]
-    def toLabelRec(acc, tup):
-        (idx, line) = tup
-        if isLabel(line):
-            acc[toLabel(line)] = idx
-        return acc
-
-    labels = reduce(
-            toLabelRec,
-            enumerate(lines),
-            {}
-    )
-
-#    def toProgramRec(acc, tup):
-#        (program, current_func) = acc
-#        (idx, line) = tup
-#        # is Label
-#        if isLabel(line):
-#            label = toLabel(line)
-#            # Create new function with name of the function label
-#            program[label] = []
-#            current_func = label
-#        # is Instruction
-#        else:
-#            # Append to existing instructions of a function
-#            program[current_func].append(line)
-#        return program, current_func
-#
-#
-#    program, _ = reduce(
-#        toProgramRec,
-#        enumerate(lines),
-#        ({}, None)
-#    )
 
     def toInstruction(line):
         if not isLabel(line):
@@ -73,28 +41,43 @@ def readProgram(filename):
             if inst["opcode"] == "li":
                             inst["opcode"] = "addi"
                             inst["arg3"] = "$zero"
-            if inst["opcode"] == "mfhi":
-                            inst["opcode"] = "add"
-                            inst["arg2"] = "$zero"
-                            inst["arg3"] = "$hi"
-            if inst["opcode"] == "mflo":
-                            inst["opcode"] = "add"
-                            inst["arg2"] = "$zero"
-                            inst["arg3"] = "$lo"
         return inst
 
     # for label, insts in program.iteritems():
     program = map(toInstruction, lines)
-    program = map(resolveLabels, program)
     program = map(transformPseudoInstructions, program)
-    # program[label] = insts
+
+#    def appendNOOPsRec(inst):
+#        if isinstance(inst, dict) and inst["opcode"] in UNCOND_JUMP_OPCODES + ["jr", "syscall"] + COND_BRANCH_OPCODES:
+#            return [inst, {"opcode": "noop", "arg1": -1, "arg2": -1, "arg3": -1}]
+#        else:
+#            return [inst]
+#    temp = map(lambda inst: appendNOOPsRec(inst), program)
+#    program = list(itertools.chain.from_iterable(temp))
+
+
+    # Collect Labels
+    def toLabelRec(acc, tup):
+        (idx, inst) = tup
+        if not isinstance(inst, dict):
+            acc[inst[:-1]] = idx
+        return acc
+
+    labels = reduce(
+        toLabelRec,
+        enumerate(program),
+        {}
+    )
+
+    program = map(resolveLabels, program)
+
 
     return program
 
 
 if __name__ == '__main__':
     program = readProgram(sys.argv[1])
-    print(program)
+    print(toString(program))
 
 
 

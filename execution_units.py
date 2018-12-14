@@ -69,21 +69,18 @@ class ALU(BaseUnit):
                 self.output = {
                     "inst_seq_id": self.inputt["inst_seq_id"],
                     "ttype": "register",
-                    "dest": self.inputt["dest"],
                     "result": self.inputt["src1"] + self.inputt["src2"]
                 }
             elif self.inputt["opcode"] in ["sub", "subi"]:
                 self.output = {
                     "inst_seq_id": self.inputt["inst_seq_id"],
                     "ttype": "register",
-                    "dest": self.inputt["dest"],
                     "result": self.inputt["src1"] - self.inputt["src2"]
                 }
             elif self.inputt["opcode"] == "mul":
                 self.output = {
                     "inst_seq_id": self.inputt["inst_seq_id"],
                     "ttype": "register",
-                    "dest": self.inputt["dest"],
                     "result": self.inputt["src1"] * self.inputt["src2"]
                 }
             elif self.inputt["opcode"] == "div":
@@ -93,7 +90,6 @@ class ALU(BaseUnit):
                 self.output = {
                     "inst_seq_id": self.inputt["inst_seq_id"],
                     "ttype": "register",
-                    "dest": self.inputt["dest"],
                     "result": self.inputt["src1"] / self.inputt["src2"]
                 }
             elif self.inputt["opcode"] == "mod":
@@ -103,7 +99,6 @@ class ALU(BaseUnit):
                 self.output = {
                     "inst_seq_id": self.inputt["inst_seq_id"],
                     "ttype": "register",
-                    "dest": self.inputt["dest"],
                     "result": self.inputt["src1"] % self.inputt["src2"]
                 }
             else:
@@ -161,7 +156,7 @@ class BU(BaseUnit):
 
     def dispatch(self, inputt):
         super(BU, self).dispatch(inputt)
-        if self.inputt["opcode"] in COND_BRANCH_OPCODES + ["syscall"]:
+        if self.inputt["opcode"] in COND_BRANCH_OPCODES + ["noop", "jal", "jr", "syscall"]:
             self.CYCLES_PER_OPERATION = 1
 
     def step(self, STATE):
@@ -193,6 +188,26 @@ class BU(BaseUnit):
                         "ttype": "branch",
                         "correct_speculation": not STATE.BTB.get(pc).taken
                     }
+            elif self.inputt["opcode"] == "noop":
+                self.output = {
+                    "inst_seq_id": self.inputt["inst_seq_id"],
+                    "ttype": "noop"
+                }
+            elif self.inputt["opcode"] == "jr":
+                # set pc and unstall pipeline
+                STATE.PC = self.inputt["label"] + 1
+                STATE.PIPELINE_STALLED = False
+                STATE.UNSTORED_JALS -= 1
+                self.output = {
+                    "inst_seq_id": self.inputt["inst_seq_id"],
+                    "ttype": "noop"
+                }
+            elif self.inputt["opcode"] == "jal":
+                self.output = {
+                    "inst_seq_id": self.inputt["inst_seq_id"],
+                    "ttype": "register",
+                    "result": self.inputt["pc"]
+                }
             elif self.inputt["opcode"] == "syscall":
                 self.output = {
                     "inst_seq_id": self.inputt["inst_seq_id"],

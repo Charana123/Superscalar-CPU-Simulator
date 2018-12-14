@@ -18,4 +18,4 @@ RTYPE_OPCODES = ["add", "addi", "sub", "subi", "mul", "mod", "div"]
 LOAD_OPCODES = ["lw"]
 STORE_OPCODES = ["sw"]
 COND_BRANCH_OPCODES = ["beq", "bne", "bgt", "bge", "blt", "ble"]
-
+UNCOND_JUMP_OPCODES = ["j", "jal"]
