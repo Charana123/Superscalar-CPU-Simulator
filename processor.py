@@ -14,7 +14,7 @@ def run():
         print(i, inst)
     while True:
         ok = runCycle()
-        if ok is not None and ok:
+        if ok:
             return
 
 
@@ -29,7 +29,6 @@ def runCycle():
     issue()
     decode()
     fetch()
-    print("PC: %d" % STATE.PC)
     if should_exit:
         print("Program Returned Successfully")
         print("STATE.RETIRED_INSTRUCTIONS = %d" % STATE.RETIRED_INSTRUCTIONS)
@@ -38,133 +37,159 @@ def runCycle():
         return True
     STATE.TOTAL_CYCLES += 1
     if not STATE.PIPELINE_STALLED:
-        STATE.PC += 1
-
+        STATE.PC += STATE.INCREMENT
+        STATE.INCREMENT = 4
+    return False
 
 def fetch():
     global STATE
 
-    # Stall the pipeline if end of function/file reached
-    if STATE.PC >= len(STATE.PROGRAM) or not isinstance(STATE.PROGRAM[STATE.PC], dict):
-        STATE.PIPELINE_STALLED = True
+    # PIPELINE["decode"] reset every cycle
+    STATE.PIPELINE["decode"] = []
+    # superscalar -
+        # If end of function/file reaches, stop fetching
+        # If seen [j,jal] encountered, continue fetching from there
+        # Instructions beyond branches, unseen relative unconditionals, indirect unconditionals are still fetched (if EOF isn't reached) and should be removed
+    i = 0
+    while len(STATE.PIPELINE["decode"]) != 4:
+        # Stall the pipeline if end of function/file reached
+        if STATE.PC+i >= len(STATE.PROGRAM) or not isinstance(STATE.PROGRAM[STATE.PC+i], dict):
+            STATE.PIPELINE_STALLED = True
 
-    # if pipeline is stalled, skip fetch
-    if STATE.PIPELINE_STALLED:
-        STATE.PIPELINE["decode"] = None
-        return
+        # if pipeline is stalled, skip fetch
+        if STATE.PIPELINE_STALLED:
+            return
 
-    # fetch next instruction
-    inst = dict(STATE.PROGRAM[STATE.PC])
-    inst_seq_id = getNextUUID()
-    inst["inst_seq_id"] = inst_seq_id
-    inst["pc"] = STATE.PC
-    STATE.PIPELINE["decode"] = inst
+        # fetch next instruction
+        inst = dict(STATE.PROGRAM[STATE.PC+i])
+        inst_seq_id = getNextUUID()
+        inst["inst_seq_id"] = inst_seq_id
+        inst["pc"] = STATE.PC+i
 
-    # Check BTAC and BTIC to get TA and TI ["J", "JAL"] (if they exist)
-    # otherwise the [J, JAL] instruction is sent to decode
-    if inst["opcode"] in ["j", "jal"]:
-        TAI = getBTIAC(inst["pc"], STATE)
-        if TAI is not None:
-            TA, TI = TAI
-            STATE.PC = TA + 1
-            STATE.PIPELINE["decode"] = TI
+        # Check BTAC and BTIC to get TA and TI ["J", "JAL"] (if they exist)
+        # otherwise the [J, JAL] instruction is sent to decode
+        if inst["opcode"] in ["j", "jal"]:
+            TAI = getBTIAC(inst["pc"], STATE)
+            if TAI is not None:
+                TA, TI = TAI
+                STATE.INCREMENT = 4 - (i + 1)
+                STATE.PC = TA + 1 # Continues fetching from TA + 2 onward
+                i = 0
+                STATE.PIPELINE["decode"].append(TI)
+            else:
+                STATE.PIPELINE["decode"].append(inst)
+        else:
+            STATE.PIPELINE["decode"].append(inst)
+
+        i += 1
+
 
 
 def decode():
     global STATE
 
-    inst = STATE.PIPELINE["decode"]
-    print("decode: %s" % str(inst))
-    if inst is None:
+    if STATE.PIPELINE["decode"] == []:
         return
 
-    # Instruction opcode is made avaialable at the decode stage
-    print("STATE.UNSTORED_JALS", STATE.UNSTORED_JALS)
-    if inst["opcode"] == "j":
-        # Create BTAC and BTIC entries (if they do not exist) for [J, JAL]
-        branch_pc, TA, TI = inst["pc"], inst["arg1"], dict(STATE.PROGRAM[inst["arg1"] + 1])
-        TI["inst_seq_id"] = getNextUUID()
-        TI["pc"] = inst["arg1"] + 1
-        createBTIACEntries(branch_pc, TA, TI, STATE)
-        # Update PC
-        STATE.PC = inst["arg1"] + 1
-        STATE.RETIRED_INSTRUCTIONS += 1 # No ROB entry for jump
+    for i in range(len(STATE.PIPELINE["decode"])):
 
-    elif inst["opcode"] == "jal":
-        # Create BTAC and BTIC entries (if they do not exist) for [J, JAL]
-        branch_pc, TA, TI = inst["pc"], inst["arg1"], dict(STATE.PROGRAM[inst["arg1"] + 1])
-        TI["inst_seq_id"] = getNextUUID()
-        TI["pc"] = inst["arg1"] + 1
-        createBTIACEntries(branch_pc, TA, TI, STATE)
-        # Update PC and $ra
-        STATE.PC = inst["arg1"] + 1
-        STATE.INSTRUCTION_QUEUE.push(inst)
+        inst = STATE.PIPELINE["decode"][i]
 
-    elif inst["opcode"] in COND_BRANCH_OPCODES:
-        # Create TA entry (for ROB commit, branch recovery)
-        pc, TA, TI = inst["pc"], inst["arg3"], dict(STATE.PROGRAM[inst["arg3"] + 1])
-        TI["inst_seq_id"] = getNextUUID()
-        TI["pc"] = inst["arg3"] + 1
-        createBTIACEntries(pc, TA, TI, STATE)
-        # Make a branch speculation (ie. always
-        taken = makePrediction(inst["pc"], STATE)
-        if taken:
-            STATE.PC = inst["arg3"] + 1
+        # Instruction opcode is made avaialable at the decode stage
+        if inst["opcode"] == "j":
+            # Create BTAC and BTIC entries (if they do not exist) for [J, JAL]
+            branch_pc, TA, TI = inst["pc"], inst["arg1"], dict(STATE.PROGRAM[inst["arg1"] + 1])
+            TI["inst_seq_id"] = getNextUUID()
+            TI["pc"] = inst["arg1"] + 1
+            createBTIACEntries(branch_pc, TA, TI, STATE)
+            # Update PC
+            STATE.PC = inst["arg1"] + 1
+            STATE.RETIRED_INSTRUCTIONS += 1 # No ROB entry for jump
+            # Flush instructions after jump and unstall if potentially overread and stalled
+            STATE.PIPELINE_STALLED = False
+            return
+
+        elif inst["opcode"] == "jal":
+            # Create BTAC and BTIC entries (if they do not exist) for [J, JAL]
+            branch_pc, TA, TI = inst["pc"], inst["arg1"], dict(STATE.PROGRAM[inst["arg1"] + 1])
+            TI["inst_seq_id"] = getNextUUID()
+            TI["pc"] = inst["arg1"] + 1
+            createBTIACEntries(branch_pc, TA, TI, STATE)
+            # Update PC and $ra
+            STATE.PC = inst["arg1"] + 1
             STATE.INSTRUCTION_QUEUE.push(inst)
+            # Flush instructions after jump
+            STATE.PIPELINE_STALLED = False
+            return
+
+        elif inst["opcode"] in COND_BRANCH_OPCODES:
+            # Create TA entry (for ROB commit, branch recovery)
+            pc, TA, TI = inst["pc"], inst["arg3"], dict(STATE.PROGRAM[inst["arg3"] + 1])
+            TI["inst_seq_id"] = getNextUUID()
+            TI["pc"] = inst["arg3"] + 1
+            createBTIACEntries(pc, TA, TI, STATE)
+            # Make a branch speculation (ie. always
+            taken = makePrediction(inst["pc"], STATE)
+            if taken:
+                STATE.PC = inst["arg3"] + 1
+                STATE.INSTRUCTION_QUEUE.push(inst)
+                # Flush instructions after branch
+                return
+            else:
+                STATE.INSTRUCTION_QUEUE.push(inst)
+
+        elif inst["opcode"] == "jr":
+            # Get $ra
+            print("stalled2")
+            STATE.PIPELINE_STALLED = True
+            STATE.INSTRUCTION_QUEUE.push(inst)
+
+        elif inst["opcode"] in ["syscall"]:
+            print("stalled3")
+            STATE.PIPELINE_STALLED = True
+            STATE.INSTRUCTION_QUEUE.push(inst)
+
         else:
-            STATE.PC = inst["pc"] + 1
+            # Push to instruction queue
             STATE.INSTRUCTION_QUEUE.push(inst)
-
-    elif inst["opcode"] == "jr":
-        # Get $ra
-        print("stalled2")
-        STATE.PIPELINE_STALLED = True
-        STATE.INSTRUCTION_QUEUE.push(inst)
-
-    elif inst["opcode"] in ["syscall"]:
-        print("stalled3")
-        STATE.PIPELINE_STALLED = True
-        STATE.INSTRUCTION_QUEUE.push(inst)
-
-    else:
-        # Push to instruction queue
-        STATE.INSTRUCTION_QUEUE.push(inst)
 
 
 def issue():
     global STATE, RTYPE_OPCODES, LOAD_OPCODES, STORE_OPCODES, COND_BRANCH_OPCODES
 
-    inst = STATE.INSTRUCTION_QUEUE.peek()
-    # Skip is Instruction Queue in empty
-    if inst is None:
-        return
-
-    # Abort is no execution unit is free
-    if (inst["opcode"] in RTYPE_OPCODES and len(filter(lambda alu: not alu.OCCUPIED, STATE.ALUs)) == 0) or \
-         (inst["opcode"] in LOAD_OPCODES + STORE_OPCODES and len(filter(lambda lsu: not lsu.OCCUPIED, STATE.LSUs)) == 0) or \
-         (inst["opcode"] in COND_BRANCH_OPCODES + ["jr", "jal", "syscall"] and len(filter(lambda bu: not bu.OCCUPIED, STATE.BUs)) == 0):
+    for _ in range(4):
+        inst = STATE.INSTRUCTION_QUEUE.peek()
+        # Skip is Instruction Queue in empty
+        if inst is None:
             return
 
-    STATE.INSTRUCTION_QUEUE.pop()
-    # issue into RS
-    if inst["opcode"] in RTYPE_OPCODES:
-        STATE.ALU_RS.issue(STATE, inst)
-    if inst["opcode"] in LOAD_OPCODES + STORE_OPCODES:
-        STATE.LSU_RS.issue(STATE, inst)
-    if inst["opcode"] in COND_BRANCH_OPCODES + ["noop", "jr", "jal", "syscall"]:
-        STATE.BU_RS.issue(STATE, inst)
-    # create ROB entry
-    STATE.ROB.issue(STATE, inst)
-    # Update RAT to point instruction 'dest' to inst_seq_id that will have the latest value of that register
-    STATE.RAT.issue(inst)
+        # Abort is no execution unit is free
+        if (inst["opcode"] in RTYPE_OPCODES and not STATE.ALU_RS.freeRSAvailable()) or \
+            (inst["opcode"] in LOAD_OPCODES + STORE_OPCODES and not STATE.BU_RS.freeRSAvailable()) or \
+            (inst["opcode"] in COND_BRANCH_OPCODES + ["jr", "jal", "syscall"] and not STATE.LSU_RS.freeRSAvailable()):
+                return
+
+        STATE.INSTRUCTION_QUEUE.pop()
+        # issue into RS
+        if inst["opcode"] in RTYPE_OPCODES:
+            STATE.ALU_RS.issue(STATE, inst)
+        if inst["opcode"] in LOAD_OPCODES + STORE_OPCODES:
+            STATE.LSU_RS.issue(STATE, inst)
+        if inst["opcode"] in COND_BRANCH_OPCODES + ["noop", "jr", "jal", "syscall"]:
+            STATE.BU_RS.issue(STATE, inst)
+        # create ROB entry
+        STATE.ROB.issue(STATE, inst)
+        # Update RAT to point instruction 'dest' to inst_seq_id that will have the latest value of that register
+        STATE.RAT.issue(inst)
 
 
 def dispatch():
     global STATE
 
-    # go through reservation stations and call the dipatch instruction
-    for rs in [STATE.ALU_RS, STATE.LSU_RS, STATE.BU_RS]:
-        rs.dispatch(STATE)
+    for _ in range(4):
+        # go through reservation stations and call the dipatch instruction
+        for rs in [STATE.ALU_RS, STATE.LSU_RS, STATE.BU_RS]:
+            rs.dispatch(STATE)
 
 
 def execute():
@@ -179,9 +204,9 @@ def execute():
     fin_fus = [fu for fu in STATE.ALUs + STATE.LSUs + STATE.BUs if fu.OCCUPIED and fu.FINISHED]
     # Skip if nothing to writeback this cycle
     if len(fin_fus) == 0:
-        STATE.PIPELINE["writeback"] = None
+        STATE.PIPELINE["writeback"] = []
         return
-    # Select oldest writeback
+    # Select oldest 4 writebacks
     def fu_sort(fu_ttype):
         if fu_ttype == "alu":
             return 1
@@ -190,44 +215,48 @@ def execute():
         if fu_ttype == "bu":
             return 3
     fin_fus = sorted(fin_fus, key=lambda writeback: fu_sort(writeback.ttype))
-    highest_prorioty_fu = fin_fus[0]
-    STATE.PIPELINE["writeback"] = highest_prorioty_fu.output
-    highest_prorioty_fu.flush()
+    highest_prorioty_fus = fin_fus[:4]
+    STATE.PIPELINE["writeback"] = [fu.output for fu in highest_prorioty_fus]
+    for fu in highest_prorioty_fus:
+        fu.flush()
 
 
 def writeback():
     global STATE
 
     # Broascasts the next writeback over the CDB to update the RSs, ROB and LSQ
-    writeback = STATE.PIPELINE["writeback"]
-    if writeback is None:
+    writebacks = STATE.PIPELINE["writeback"]
+    if writebacks == []:
         return
-    STATE.CDB.writeback(STATE, writeback)
+    for writeback in writebacks:
+        STATE.CDB.writeback(STATE, writeback)
 
 
 def commit():
     global STATE
 
-    # Commit next entry of ROB (and optionally the ROB) to the architectural state (memory and register file)
-    try:
-        STATE.ROB.commit(STATE)
-        return False
-    except backend_components.ReorderBuffer.PipelineFlush:
-        # Flush ROB and LSQ
-        STATE.ROB.flush()
-        STATE.LSQ.flush()
-        # Flush Instruction Queue
-        STATE.INSTRUCTION_QUEUE.flush()
-        # Reset the RAT to point to physical registers (i.e. flush)
-        STATE.RAT.flush()
-        # Flush Reservation Stations
-        for rs in [STATE.ALU_RS, STATE.BU_RS, STATE.LSU_RS]:
-            rs.flush()
-        # Flush Execution Units
-        for fu in STATE.ALUs + STATE.BUs + STATE.LSUs:
-            fu.flush()
-    except backend_components.ReorderBuffer.SyscallExit:
-        return True
+    for _ in range(4):
+        # Commit next entry of ROB (and optionally the ROB) to the architectural state (memory and register file)
+        try:
+            STATE.ROB.commit(STATE)
+        except backend_components.ReorderBuffer.PipelineFlush:
+            # Flush ROB and LSQ
+            STATE.ROB.flush()
+            STATE.LSQ.flush()
+            # Flush Instruction Queue
+            STATE.INSTRUCTION_QUEUE.flush()
+            # Reset the RAT to point to physical registers (i.e. flush)
+            STATE.RAT.flush()
+            # Flush Reservation Stations
+            for rs in [STATE.ALU_RS, STATE.BU_RS, STATE.LSU_RS]:
+                rs.flush()
+            # Flush Execution Units
+            for fu in STATE.ALUs + STATE.BUs + STATE.LSUs:
+                fu.flush()
+            return False
+        except backend_components.ReorderBuffer.SyscallExit:
+            return True
+    return False
 
 def runProgram(filename):
     global STATE

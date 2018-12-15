@@ -11,12 +11,13 @@ class State(object):
         self.RETIRED_INSTRUCTIONS = 0
         self.TOTAL_CYCLES = 0
         self.PC = 0
+        self.INCREMENT = 4
         self.REGISTER_FILE = [0] * 34
         self.STACK = [0] * 100
         self.PIPELINE_STALLED = False
         self.PIPELINE = {
-            "decode": None,
-            "writeback": None
+            "decode": [],
+            "writeback": []
         }
         self.REGISTER_ADDRESS_STACK = []
         self.REGISTER_ADDRESS_STACK_MAX = 16

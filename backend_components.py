@@ -178,11 +178,11 @@ class ReorderBuffer(CircularBuffer):
                 # Update PC
                 STATE.PC = retire_rob_entry.pc
                 # Unstall Pipeline
-                STATE.PIPELINE_STALLED = True
+                STATE.PIPELINE_STALLED = False
                 # Flush Pipeline
                 STATE.PIPELINE = {
-                    "decode": None,
-                    "writeback": None
+                    "decode": [],
+                    "writeback": []
                 }
                 raise ReorderBuffer.PipelineFlush()
         if retire_rob_entry.op_type == "branch":
@@ -196,14 +196,14 @@ class ReorderBuffer(CircularBuffer):
                 if taken:
                     TA, TI = getBTIAC(retire_rob_entry.pc, STATE)
                     STATE.PC = TA + 2
-                    STATE.PIPELINE["decode"] = TI
+                    STATE.PIPELINE["decode"] = [TI]
                 else:
                     STATE.PC = retire_rob_entry.pc + 1
                 print("prediction fixed, pc: %d" % STATE.PC)
                 # Unstall pipeline if stalled by a previous (but now flushed) instruction
                 STATE.PIPELINE_STALLED = False
                 # Flush pipeline
-                STATE.PIPELINE["writeback"] = None
+                STATE.PIPELINE["writeback"] = []
                 raise ReorderBuffer.PipelineFlush()
             else:
                 return True

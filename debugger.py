@@ -15,14 +15,14 @@ class Debugger(object):
             if cmd_op == "n":
                 print("\n\n\n\n\n")
                 ok = self.runCycle()
-                if ok is not None and ok:
+                if ok:
                     return
                 self.printAll()
             elif cmd_op == "run":
                 while True:
                     print("\n\n\n\n\n")
                     ok = self.runCycle()
-                    if ok is not None and ok:
+                    if ok:
                         return
                     self.printAll()
             elif cmd_opd.startswith("pip"):

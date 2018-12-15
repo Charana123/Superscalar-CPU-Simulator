@@ -214,6 +214,10 @@ class ReseravationStation(object):
         busy = lambda rs_entries: filter(lambda rs_entry: rs_entry.Busy, rs_entries)
         return toString(busy(self.RSEntries))
 
+    def freeRSAvailable(self):
+        notBusy = lambda rs_entries: filter(lambda rs_entry: not rs_entry.Busy, rs_entries)
+        return len(notBusy(self.RSEntries)) > 0
+
     def flush(self):
         self.RSEntries = generate(ReseravationStation.ReservationStationEntry, self.size)
 
