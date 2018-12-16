@@ -39,10 +39,10 @@ class TestProcessor(unittest.TestCase):
 #    def test_fib(self):
 #        processor.runProgram("./benchmark_kernels/fib.asm")
 #        self.assertEqual(self.readReg("$a1"), 5)
-#
-#    def test_gcd(self):
-#        processor.runProgram("./benchmark_kernels/gcd.asm")
-#        self.assertEqual(self.readReg("$s1"), 4)
+
+    def test_gcd(self):
+        processor.runProgram("./benchmark_kernels/gcd.asm")
+        self.assertEqual(self.readReg("$s1"), 4)
 #
 #    def test_vec_add(self):
 #        processor.runProgram("./benchmark_kernels/vec_add.asm")

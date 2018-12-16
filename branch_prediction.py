@@ -13,7 +13,7 @@ class LocalBranchHistoryBuffers(object):
 
         def update(self, taken):
             self.history.append(taken)
-            self.history = self.history[:N_BIT_HISTORY-1]
+            self.history = self.history[-N_BIT_HISTORY:]
 
         def __str__(self):
             return "history: %s" % toString(self.history)
@@ -119,9 +119,8 @@ def makePrediction(branch_pc, STATE):
     # create Branch History Buffer (BHB) and Pattern History Table (PHT) entries AND predict FALSE
     # i.e. all conditionals are not taken
     BHB_Entry = STATE.BHB.getBranchHistory(branch_pc)
-    if BHB_Entry is not None:
-        taken = STATE.PHT.getPrediction(branch_pc, BHB_Entry)
-        return taken
+    taken = STATE.PHT.getPrediction(branch_pc, BHB_Entry)
+    return taken
 
 def updatePrediction(branch_pc, taken, STATE):
     # Update Branch History Buffer

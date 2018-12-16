@@ -19,6 +19,7 @@ class State(object):
             "decode": [],
             "writeback": []
         }
+        self.PCS = []
         self.REGISTER_ADDRESS_STACK = []
         self.REGISTER_ADDRESS_STACK_MAX = 16
         self.UNSTORED_JALS = 0

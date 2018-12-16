@@ -1,4 +1,4 @@
-from util import toString
+from util import toString, getNextUUID
 from functional import first, generate
 from branch_prediction import getLatestBranchHistory, getBTIAC
 from consts import REGISTER_MNEMONICS, RTYPE_OPCODES, STORE_OPCODES, LOAD_OPCODES, COND_BRANCH_OPCODES
@@ -85,16 +85,16 @@ class ReorderBuffer(CircularBuffer):
         super(ReorderBuffer, self).flush()
 
     def __str__(self):
-        busy_entries = None
+        busy_entries = ""
         if self.EMPTY:
-            busy_entries = "ROB is Empty"
+            busy_entries = "ROB is Empty\n"
         if self.FULL:
-            busy_entries = "ROB is Full"
+            busy_entries = "ROB is Full\n" + toString(self.entries[self.commit_ptr: self.size] + self.entries[:self.issue_ptr])
         if self.issue_ptr > self.commit_ptr:
-            busy_entries = self.entries[self.commit_ptr: self.issue_ptr]
+            busy_entries = toString(self.entries[self.commit_ptr: self.issue_ptr])
         if self.issue_ptr < self.commit_ptr:
-            busy_entries = self.entries[self.commit_ptr: self.size] + self.entries[:self.issue_ptr]
-        return toString(busy_entries)
+            busy_entries = toString(self.entries[self.commit_ptr: self.size] + self.entries[:self.issue_ptr])
+        return busy_entries
 
     def findROBEntry(self, inst_seq_id):
         return first(lambda entry: entry.inst_seq_id == inst_seq_id, self.entries)
@@ -190,15 +190,18 @@ class ReorderBuffer(CircularBuffer):
                 return False
             # The branch was incorrect predicted
             elif retire_rob_entry.Value == 0:
+                print("ROBViolation")
                 # Update PC
                 taken = getLatestBranchHistory(retire_rob_entry.pc, STATE)
                 print("prediction fixed", taken)
                 if taken:
                     TA, TI = getBTIAC(retire_rob_entry.pc, STATE)
                     STATE.PC = TA + 2
+                    TI["inst_seq_id"] = getNextUUID()
                     STATE.PIPELINE["decode"] = [TI]
                 else:
                     STATE.PC = retire_rob_entry.pc + 1
+                    STATE.PIPELINE["decode"] = []
                 print("prediction fixed, pc: %d" % STATE.PC)
                 # Unstall pipeline if stalled by a previous (but now flushed) instruction
                 STATE.PIPELINE_STALLED = False

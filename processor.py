@@ -75,11 +75,19 @@ def fetch():
                 STATE.INCREMENT = 4 - (i + 1)
                 STATE.PC = TA + 1 # Continues fetching from TA + 2 onward
                 i = 0
+                TI["inst_seq_id"] = getNextUUID()
                 STATE.PIPELINE["decode"].append(TI)
+                STATE.PCS.append(TI["pc"])
+                if inst["opcode"] == "jal":
+                    STATE.INSTRUCTION_QUEUE.push(inst)
+                else:
+                    STATE.RETIRED_INSTRUCTIONS += 1 # No ROB entry for jump
             else:
                 STATE.PIPELINE["decode"].append(inst)
+                STATE.PCS.append(inst["pc"])
         else:
             STATE.PIPELINE["decode"].append(inst)
+            STATE.PCS.append(inst["pc"])
 
         i += 1
 
@@ -99,7 +107,6 @@ def decode():
         if inst["opcode"] == "j":
             # Create BTAC and BTIC entries (if they do not exist) for [J, JAL]
             branch_pc, TA, TI = inst["pc"], inst["arg1"], dict(STATE.PROGRAM[inst["arg1"] + 1])
-            TI["inst_seq_id"] = getNextUUID()
             TI["pc"] = inst["arg1"] + 1
             createBTIACEntries(branch_pc, TA, TI, STATE)
             # Update PC
@@ -112,7 +119,6 @@ def decode():
         elif inst["opcode"] == "jal":
             # Create BTAC and BTIC entries (if they do not exist) for [J, JAL]
             branch_pc, TA, TI = inst["pc"], inst["arg1"], dict(STATE.PROGRAM[inst["arg1"] + 1])
-            TI["inst_seq_id"] = getNextUUID()
             TI["pc"] = inst["arg1"] + 1
             createBTIACEntries(branch_pc, TA, TI, STATE)
             # Update PC and $ra
@@ -125,7 +131,6 @@ def decode():
         elif inst["opcode"] in COND_BRANCH_OPCODES:
             # Create TA entry (for ROB commit, branch recovery)
             pc, TA, TI = inst["pc"], inst["arg3"], dict(STATE.PROGRAM[inst["arg3"] + 1])
-            TI["inst_seq_id"] = getNextUUID()
             TI["pc"] = inst["arg3"] + 1
             createBTIACEntries(pc, TA, TI, STATE)
             # Make a branch speculation (ie. always
@@ -163,11 +168,12 @@ def issue():
         if inst is None:
             return
 
-        # Abort is no execution unit is free
-        if (inst["opcode"] in RTYPE_OPCODES and not STATE.ALU_RS.freeRSAvailable()) or \
-            (inst["opcode"] in LOAD_OPCODES + STORE_OPCODES and not STATE.BU_RS.freeRSAvailable()) or \
-            (inst["opcode"] in COND_BRANCH_OPCODES + ["jr", "jal", "syscall"] and not STATE.LSU_RS.freeRSAvailable()):
-                return
+        nofreeRS = (inst["opcode"] in RTYPE_OPCODES and not STATE.ALU_RS.freeRSAvailable()) or \
+            (inst["opcode"] in LOAD_OPCODES + STORE_OPCODES and not STATE.LSU_RS.freeRSAvailable()) or \
+            (inst["opcode"] in COND_BRANCH_OPCODES + ["jr", "jal", "syscall"] and not STATE.BU_RS.freeRSAvailable())
+
+        if nofreeRS or STATE.ROB.FULL or STATE.LSQ.FULL:
+            return
 
         STATE.INSTRUCTION_QUEUE.pop()
         # issue into RS

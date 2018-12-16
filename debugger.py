@@ -55,6 +55,7 @@ class Debugger(object):
         self.printExecute()
         self.printWriteback()
         self.printCommit()
+        print(self.STATE.PCS)
         print("PC", self.STATE.PC)
 
     def printFetch(self):
