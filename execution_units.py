@@ -198,6 +198,7 @@ class BU(BaseUnit):
                     "ttype": "noop"
                 }
             elif self.inputt["opcode"] == "jr":
+                STATE.UNSTORED_JALS -= 1
                 # set pc and unstall pipeline
                 STATE.PC = self.inputt["label"] + 1
                 STATE.PIPELINE_STALLED = False

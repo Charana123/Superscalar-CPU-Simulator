@@ -99,16 +99,18 @@ class PatternHistoryTables(object):
         return self.__str__()
 
 
-#class RegisterAddressStackCheckpoint(object):
-#
-#    def __init__(self):
-#        self.entries = {}
-#
-#    def speculativeSave(self, branch_inst_seq_id, REGISTER_ADDRESS_STACK):
-#        self.entries[branch_inst_seq_id] = list(REGISTER_ADDRESS_STACK)
-#
-#    def get(self, branch_inst_seq_id):
-#        return self.entries[branch_inst_seq_id]
+class RegisterAddressStackCheckpoint(object):
+
+    def __init__(self):
+        self.entries = {}
+
+    def saveCheckpoint(self, inst_seq_id, RAS):
+        self.entries[inst_seq_id] = list(RAS)
+
+    def retrieveCheckpoint(self, inst_seq_id):
+        RAS_Checkpoint = self.entries[inst_seq_id]
+        del self.entries[inst_seq_id]
+        return RAS_Checkpoint
 
 def getLatestBranchHistory(branch_pc, STATE):
     BHB_Entry = STATE.BHB.getBranchHistory(branch_pc)

@@ -177,6 +177,8 @@ class ReorderBuffer(CircularBuffer):
                 print("LSQViolation")
                 # Update PC
                 STATE.PC = retire_rob_entry.pc
+                # Restore RAS
+                STATE.RAS = STATE.RASC.retrieveCheckpoint(retire_rob_entry.inst_seq_id)
                 # Unstall Pipeline
                 STATE.PIPELINE_STALLED = False
                 # Flush Pipeline
@@ -205,6 +207,8 @@ class ReorderBuffer(CircularBuffer):
                 print("prediction fixed, pc: %d" % STATE.PC)
                 # Unstall pipeline if stalled by a previous (but now flushed) instruction
                 STATE.PIPELINE_STALLED = False
+                # Restore RAS
+                STATE.RAS = STATE.RASC.retrieveCheckpoint(retire_rob_entry.inst_seq_id)
                 # Flush pipeline
                 STATE.PIPELINE["writeback"] = []
                 raise ReorderBuffer.PipelineFlush()
@@ -306,7 +310,6 @@ class LoadStoreQueue(CircularBuffer):
         vacant_lsq_entry.Store = inst["opcode"] == "sw"
         vacant_lsq_entry.Value = None; vacant_lsq_entry.ValidV = None
         vacant_lsq_entry.Address = None; vacant_lsq_entry.ValidA = None
-        vacant_lsq_entry.REGISTER_ADDRESS_STACK_COPY = list(STATE.REGISTER_ADDRESS_STACK)
         if not vacant_lsq_entry.Store:
             vacant_lsq_entry.load_dest = inst["arg1"]
         return True
@@ -329,8 +332,6 @@ class LoadStoreQueue(CircularBuffer):
             return True
         else:
             if retire_lsq_entry.Value != STATE.STACK[retire_lsq_entry.Address]:
-                # Update Return Address Stack
-                STATE.REGISTER_ADDRESS_STACK = retire_lsq_entry.REGISTER_ADDRESS_STACK_COPY
                 raise LoadStoreQueue.LSQViolation("LSQViolation", retire_lsq_entry.inst_seq_id)
             else:
                 # Update Load Register and RAT Entry

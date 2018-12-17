@@ -2,7 +2,7 @@ import assembler
 from frontend_components import InstructionQueue, ReseravationStation, RegisterAliasTable
 from backend_components import ReorderBuffer, LoadStoreQueue, CommonDataBus
 from execution_units import ALU, LSU, BU
-from branch_prediction import BranchTargetAddressCache, BranchTargetInstructionCache, LocalBranchHistoryBuffers, PatternHistoryTables
+from branch_prediction import BranchTargetAddressCache, BranchTargetInstructionCache, LocalBranchHistoryBuffers, PatternHistoryTables, RegisterAddressStackCheckpoint
 
 class State(object):
 
@@ -20,8 +20,8 @@ class State(object):
             "writeback": []
         }
         self.PCS = []
-        self.REGISTER_ADDRESS_STACK = []
-        self.REGISTER_ADDRESS_STACK_MAX = 16
+        self.RAS = []
+        self.RAS_MAX = 16
         self.UNSTORED_JALS = 0
         self.ALUs = [ALU(), ALU()]
         self.ALU_RS = ReseravationStation(self.ALUs, size=5)
@@ -39,6 +39,7 @@ class State(object):
         self.BTIC = BranchTargetInstructionCache()
         self.BHB = LocalBranchHistoryBuffers()
         self.PHT = PatternHistoryTables()
+        self.RASC = RegisterAddressStackCheckpoint()
 
 
 

@@ -55,6 +55,7 @@ def fetch():
         # Stall the pipeline if end of function/file reached
         if STATE.PC+i >= len(STATE.PROGRAM) or not isinstance(STATE.PROGRAM[STATE.PC+i], dict):
             STATE.PIPELINE_STALLED = True
+            print("stalled1")
 
         # if pipeline is stalled, skip fetch
         if STATE.PIPELINE_STALLED:
@@ -79,7 +80,12 @@ def fetch():
                 STATE.PIPELINE["decode"].append(TI)
                 STATE.PCS.append(TI["pc"])
                 if inst["opcode"] == "jal":
-                    STATE.INSTRUCTION_QUEUE.push(inst)
+                    if len(STATE.RAS) < STATE.RAS_MAX:
+                        STATE.RAS.append(inst["pc"])
+                        STATE.RETIRED_INSTRUCTIONS += 1
+                    else:
+                        STATE.UNSTORED_JALS += 1
+                        STATE.INSTRUCTION_QUEUE.push(inst)
                 else:
                     STATE.RETIRED_INSTRUCTIONS += 1 # No ROB entry for jump
             else:
@@ -109,6 +115,7 @@ def decode():
             branch_pc, TA, TI = inst["pc"], inst["arg1"], dict(STATE.PROGRAM[inst["arg1"] + 1])
             TI["pc"] = inst["arg1"] + 1
             createBTIACEntries(branch_pc, TA, TI, STATE)
+
             # Update PC
             STATE.PC = inst["arg1"] + 1
             STATE.RETIRED_INSTRUCTIONS += 1 # No ROB entry for jump
@@ -121,9 +128,18 @@ def decode():
             branch_pc, TA, TI = inst["pc"], inst["arg1"], dict(STATE.PROGRAM[inst["arg1"] + 1])
             TI["pc"] = inst["arg1"] + 1
             createBTIACEntries(branch_pc, TA, TI, STATE)
+
+            # Add to RAS (Return Address Stack) if not full
+            if len(STATE.RAS) < STATE.RAS_MAX:
+                STATE.RAS.append(inst["pc"])
+                STATE.RETIRED_INSTRUCTIONS += 1
+            else:
+                STATE.UNSTORED_JALS += 1
+                # If jump and link cannot store to RAS, return target stored in $ra
+                STATE.INSTRUCTION_QUEUE.push(inst)
+
             # Update PC and $ra
             STATE.PC = inst["arg1"] + 1
-            STATE.INSTRUCTION_QUEUE.push(inst)
             # Flush instructions after jump
             STATE.PIPELINE_STALLED = False
             return
@@ -133,6 +149,8 @@ def decode():
             pc, TA, TI = inst["pc"], inst["arg3"], dict(STATE.PROGRAM[inst["arg3"] + 1])
             TI["pc"] = inst["arg3"] + 1
             createBTIACEntries(pc, TA, TI, STATE)
+            # Checkpoint RAS
+            STATE.RASC.saveCheckpoint(inst["inst_seq_id"], STATE.RAS)
             # Make a branch speculation (ie. always
             taken = makePrediction(inst["pc"], STATE)
             if taken:
@@ -144,14 +162,27 @@ def decode():
                 STATE.INSTRUCTION_QUEUE.push(inst)
 
         elif inst["opcode"] == "jr":
-            # Get $ra
-            print("stalled2")
-            STATE.PIPELINE_STALLED = True
-            STATE.INSTRUCTION_QUEUE.push(inst)
+            print("jr2")
+            # If RAS full, stall, else pop return address and continue
+            if STATE.UNSTORED_JALS != 0:
+                STATE.PIPELINE_STALLED = True
+                print("stalled2")
+                # if return jump cannot pop from RAS, load value of $ra from load pipeline
+                STATE.INSTRUCTION_QUEUE.push(inst)
+            else:
+                print("jr1")
+                STATE.PC = STATE.RAS.pop() + 1
+                STATE.PIPELINE_STALLED = False
+                STATE.RETIRED_INSTRUCTIONS += 1 # No ROB entry for jump return
 
         elif inst["opcode"] in ["syscall"]:
             print("stalled3")
             STATE.PIPELINE_STALLED = True
+            STATE.INSTRUCTION_QUEUE.push(inst)
+
+        elif inst["opcode"] == "lw":
+            # Checkpoint RAS
+            STATE.RASC.saveCheckpoint(inst["inst_seq_id"], STATE.RAS)
             STATE.INSTRUCTION_QUEUE.push(inst)
 
         else:
