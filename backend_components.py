@@ -1,7 +1,7 @@
 from util import toString, getNextUUID
+from consts import REGISTER_MNEMONICS
 from functional import first, generate
 from branch_prediction import getLatestBranchHistory, getBTIAC
-from consts import REGISTER_MNEMONICS, RTYPE_OPCODES, STORE_OPCODES, LOAD_OPCODES, COND_BRANCH_OPCODES
 import abc
 
 
@@ -129,13 +129,13 @@ class ReorderBuffer(CircularBuffer):
         vacant_rob_entry.Valid = False
         vacant_rob_entry.Value = None
         print("inst[opcode]", inst["opcode"])
-        if inst["opcode"] in RTYPE_OPCODES:
+        if inst["opcode"] in ["add", "addi", "sub", "subi", "mul", "div", "mod"]:
             vacant_rob_entry.op_type = "r_type"
             vacant_rob_entry.Areg = inst["arg1"]
         elif inst["opcode"] == "jal":
             vacant_rob_entry.op_type = "r_type"
             vacant_rob_entry.Areg = "$ra"
-        elif inst["opcode"] in LOAD_OPCODES + STORE_OPCODES:
+        elif inst["opcode"] in ["lw", "sw"]:
             STATE.LSQ.issue(STATE, inst)
             if inst["opcode"] == "lw":
                 vacant_rob_entry.op_type = "load"
@@ -143,7 +143,7 @@ class ReorderBuffer(CircularBuffer):
                 vacant_rob_entry.op_type = "store"
         elif inst["opcode"] == "syscall":
             vacant_rob_entry.op_type = "syscall"
-        elif inst["opcode"] in COND_BRANCH_OPCODES:
+        elif inst["opcode"] in ["beq", "bne", "bgt", "bge", "blt", "ble"]:
             vacant_rob_entry.op_type = "branch"
         elif inst["opcode"] in ["jr", "noop"]:
             vacant_rob_entry.op_type = "noop"
@@ -358,7 +358,7 @@ class CommonDataBus(object):
         if ttype == "register":
             result = writeback["result"]
             # Fill ReservationStation Entries
-            for rs in [self.STATE.ALU_RS, self.STATE.LSU_RS, self.STATE.BU_RS]:
+            for rs in [self.STATE.ALU_RS, self.STATE.MU_RS, self.STATE.DU_RS, self.STATE.LSU_RS, self.STATE.BU_RS]:
                 rs.writeback_rtype_or_load(STATE, inst_seq_id, result)
             # Fill ROB entries for rtype instructions
             self.STATE.ROB.writeback_rtype(inst_seq_id, result)
@@ -373,7 +373,7 @@ class CommonDataBus(object):
             address = writeback["address"]
             value = self.STATE.LSQ.writeback_load(self.STATE, inst_seq_id, address)
             # Fill ReservationStation Entries
-            for rs in [self.STATE.ALU_RS, self.STATE.LSU_RS, self.STATE.BU_RS]:
+            for rs in [self.STATE.ALU_RS, self.STATE.MU_RS, self.STATE.DU_RS, self.STATE.LSU_RS, self.STATE.BU_RS]:
                 rs.writeback_rtype_or_load(STATE, inst_seq_id, value)
             # Pending = False, for RAT entries
             self.STATE.RAT.writeback(inst_seq_id)

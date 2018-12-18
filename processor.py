@@ -4,7 +4,7 @@ import backend_components
 from functional import first, anyy, alll
 from state import State
 from util import getNextUUID, toString
-from consts import RTYPE_OPCODES, LOAD_OPCODES, STORE_OPCODES, COND_BRANCH_OPCODES, UNCOND_JUMP_OPCODES
+from consts import ALU_OPCODES, MUL_OPCODES, DIV_OPCODES, LOAD_STORE_OPCODES, COND_BRANCH_OPCODES, UNCOND_JUMP_OPCODES
 from debugger import Debugger
 
 def run():
@@ -191,7 +191,7 @@ def decode():
 
 
 def issue():
-    global STATE, RTYPE_OPCODES, LOAD_OPCODES, STORE_OPCODES, COND_BRANCH_OPCODES
+    global STATE
 
     for _ in range(4):
         inst = STATE.INSTRUCTION_QUEUE.peek()
@@ -199,8 +199,10 @@ def issue():
         if inst is None:
             return
 
-        nofreeRS = (inst["opcode"] in RTYPE_OPCODES and not STATE.ALU_RS.freeRSAvailable()) or \
-            (inst["opcode"] in LOAD_OPCODES + STORE_OPCODES and not STATE.LSU_RS.freeRSAvailable()) or \
+        nofreeRS = (inst["opcode"] in ALU_OPCODES and not STATE.ALU_RS.freeRSAvailable()) or \
+            (inst["opcode"] in MUL_OPCODES and not STATE.MU_RS.freeRSAvailable()) or \
+            (inst["opcode"] in DIV_OPCODES and not STATE.DU_RS.freeRSAvailable()) or \
+            (inst["opcode"] in LOAD_STORE_OPCODES and not STATE.LSU_RS.freeRSAvailable()) or \
             (inst["opcode"] in COND_BRANCH_OPCODES + ["jr", "jal", "syscall"] and not STATE.BU_RS.freeRSAvailable())
 
         if nofreeRS or STATE.ROB.FULL or STATE.LSQ.FULL:
@@ -208,9 +210,13 @@ def issue():
 
         STATE.INSTRUCTION_QUEUE.pop()
         # issue into RS
-        if inst["opcode"] in RTYPE_OPCODES:
+        if inst["opcode"] in ALU_OPCODES:
             STATE.ALU_RS.issue(STATE, inst)
-        if inst["opcode"] in LOAD_OPCODES + STORE_OPCODES:
+        if inst["opcode"] in MUL_OPCODES:
+            STATE.MU_RS.issue(STATE, inst)
+        if inst["opcode"] in DIV_OPCODES:
+            STATE.DU_RS.issue(STATE, inst)
+        if inst["opcode"] in LOAD_STORE_OPCODES:
             STATE.LSU_RS.issue(STATE, inst)
         if inst["opcode"] in COND_BRANCH_OPCODES + ["noop", "jr", "jal", "syscall"]:
             STATE.BU_RS.issue(STATE, inst)
@@ -225,7 +231,7 @@ def dispatch():
 
     for _ in range(4):
         # go through reservation stations and call the dipatch instruction
-        for rs in [STATE.ALU_RS, STATE.LSU_RS, STATE.BU_RS]:
+        for rs in [STATE.ALU_RS, STATE.MU_RS, STATE.DU_RS, STATE.LSU_RS, STATE.BU_RS]:
             rs.dispatch(STATE)
 
 
@@ -233,12 +239,11 @@ def execute():
     global STATE
 
     # Step all OCCUPIED function units
-    inuse_fus = filter(lambda fu: fu.OCCUPIED and not fu.FINISHED, STATE.ALUs + STATE.LSUs + STATE.BUs)
-    for inuse_fu in inuse_fus:
+    for inuse_fu in STATE.ALUs + STATE.MUs + STATE.DUs + STATE.LSUs + STATE.BUs:
         inuse_fu.step(STATE)
     # Set to the writeback stage a set of instructions that can write its
     # computation to the STATE.ROB
-    fin_fus = [fu for fu in STATE.ALUs + STATE.LSUs + STATE.BUs if fu.OCCUPIED and fu.FINISHED]
+    fin_fus = [fu for fu in STATE.ALUs + STATE.MUs + STATE.DUs + STATE.LSUs + STATE.BUs if fu.isFinished()]
     # Skip if nothing to writeback this cycle
     if len(fin_fus) == 0:
         STATE.PIPELINE["writeback"] = []
@@ -247,13 +252,17 @@ def execute():
     def fu_sort(fu_ttype):
         if fu_ttype == "alu":
             return 1
-        if fu_ttype == "lsu":
+        if fu.ttype == "mu":
             return 2
-        if fu_ttype == "bu":
+        if fu_ttype == "lsu":
             return 3
+        if fu_ttype == "du":
+            return 4
+        if fu_ttype == "bu":
+            return 5
     fin_fus = sorted(fin_fus, key=lambda writeback: fu_sort(writeback.ttype))
     highest_prorioty_fus = fin_fus[:4]
-    STATE.PIPELINE["writeback"] = [fu.output for fu in highest_prorioty_fus]
+    STATE.PIPELINE["writeback"] = [fu.getOutput() for fu in highest_prorioty_fus]
     for fu in highest_prorioty_fus:
         fu.flush()
 
@@ -263,6 +272,7 @@ def writeback():
 
     # Broascasts the next writeback over the CDB to update the RSs, ROB and LSQ
     writebacks = STATE.PIPELINE["writeback"]
+    print(writebacks)
     if writebacks == []:
         return
     for writeback in writebacks:
@@ -285,10 +295,10 @@ def commit():
             # Reset the RAT to point to physical registers (i.e. flush)
             STATE.RAT.flush()
             # Flush Reservation Stations
-            for rs in [STATE.ALU_RS, STATE.BU_RS, STATE.LSU_RS]:
+            for rs in [STATE.ALU_RS, STATE.MU_RS, STATE.DU_RS, STATE.BU_RS, STATE.LSU_RS]:
                 rs.flush()
             # Flush Execution Units
-            for fu in STATE.ALUs + STATE.BUs + STATE.LSUs:
+            for fu in STATE.ALUs + STATE.MUs + STATE.DUs + STATE.BUs + STATE.LSUs:
                 fu.flush()
             return False
         except backend_components.ReorderBuffer.SyscallExit:

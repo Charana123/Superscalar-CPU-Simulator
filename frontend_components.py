@@ -1,7 +1,7 @@
 from util import toString
 from functional import first, anyy, alll, generate
 from consts import REGISTER_MNEMONICS
-from consts import RTYPE_OPCODES, LOAD_OPCODES, STORE_OPCODES, COND_BRANCH_OPCODES
+from consts import ALU_OPCODES, MUL_OPCODES, DIV_OPCODES, LOAD_STORE_OPCODES, COND_BRANCH_OPCODES
 
 
 class InstructionQueue(object):
@@ -73,7 +73,7 @@ class RegisterAliasTable(object):
         return self.entries[key]
 
     def issue(self, inst):
-        if inst["opcode"] in RTYPE_OPCODES + LOAD_OPCODES:
+        if inst["opcode"] in ALU_OPCODES + MUL_OPCODES + DIV_OPCODES + ["lw"]:
             dest_reg = inst["arg1"]
             inst_seq_id = inst["inst_seq_id"]
             self.entries[dest_reg].issue(inst_seq_id)
@@ -122,7 +122,6 @@ class ReseravationStation(object):
             return self.inst_seq_id
 
         def issue(self, STATE, inst, inst_seq_id):
-            global RTYPE_OPCODES, LOAD_OPCODES, STORE_OPCODES, COND_BRANCH_OPCODES
             self.inst_seq_id = inst["inst_seq_id"]
             self.pc = inst["pc"]
             self.Busy = True
@@ -137,13 +136,13 @@ class ReseravationStation(object):
             if inst["opcode"] == "jal":
                 tags = [(inst["pc"], "pc")]
                 values = []
-            if inst["opcode"] in RTYPE_OPCODES:
+            if inst["opcode"] in ALU_OPCODES + MUL_OPCODES + DIV_OPCODES:
                 tags = [(inst["arg1"], "dest")]
                 values = [(inst["arg2"], "src1"), (inst["arg3"], "src2")]
-            if inst["opcode"] in LOAD_OPCODES:
+            if inst["opcode"] == "lw":
                 tags = [(inst["arg1"], "dest")]
                 values = [(inst["arg2"], "add1"), (inst["arg3"], "add2")]
-            if inst["opcode"] in STORE_OPCODES:
+            if inst["opcode"] == "sw":
                 tags = []
                 values = [(inst["arg1"], "src"), (inst["arg2"], "add1"), (inst["arg3"], "add2")]
             if inst["opcode"] in COND_BRANCH_OPCODES:
@@ -178,7 +177,7 @@ class ReseravationStation(object):
 
             self.Values = map(evaluateValueEntries, values)
 
-        def dispatch(self, FU):
+        def dispatch(self, STATE, FU):
             result = {"inst_seq_id": self.inst_seq_id, "pc": self.pc, "opcode": self.Op}
             def insert(acc, label, value_tag):
                 acc[label] = value_tag
@@ -186,7 +185,7 @@ class ReseravationStation(object):
             result = reduce(lambda acc, (value, _, label): insert(acc, label, value), self.Values, result)
             result = reduce(lambda acc, (tag, label): insert(acc, label, tag), self.Tags, result)
             self.Busy = False
-            FU.dispatch(result)
+            FU.dispatch(STATE, result)
 
         def writeback_rtype_or_load(self, STATE, inst_seq_id, val):
             def writeback_update(value_entry):
@@ -226,7 +225,7 @@ class ReseravationStation(object):
 
     def dispatch(self, STATE):
         # Check if any functional/execution units are available to dispatch
-        FU = first(lambda fu: not fu.OCCUPIED, self.functional_units)
+        FU = first(lambda fu: not fu.isOccupied(), self.functional_units)
         if FU is None:
             return
         # Filter all RS Entries whos instruction is ready to be dispatched
@@ -237,7 +236,7 @@ class ReseravationStation(object):
         oldestRSID = reduce(lambda oldest_inst_seq_id, inst_seq_id: min(oldest_inst_seq_id, inst_seq_id), readyRSIDS)
         oldestRS = self.findRSEntry(oldestRSID)
         # Reset RS entry
-        oldestRS.dispatch(FU)
+        oldestRS.dispatch(STATE, FU)
 
     def issue(self, STATE, inst):
         freeRSs = filter(lambda rs_entry: not rs_entry.Busy, self.RSEntries)

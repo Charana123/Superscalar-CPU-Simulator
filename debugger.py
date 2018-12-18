@@ -137,12 +137,16 @@ class Debugger(object):
 
     def printReservationStations(self):
         print "Busy - ALU RS: %s" % toString(self.STATE.ALU_RS)
+        print "Busy - ALU RS: %s" % toString(self.STATE.MU_RS)
+        print "Busy - ALU RS: %s" % toString(self.STATE.DU_RS)
         print "Busy - LSU RS: %s" % toString(self.STATE.LSU_RS)
         print "Busy - BU RS: %s" % toString(self.STATE.BU_RS)
 
     def printExecutionUnits(self):
-        busy = lambda fus: filter(lambda fu: fu.OCCUPIED, fus)
+        busy = lambda fus: filter(lambda fu: fu.isOccupied(), fus)
         print "Busy - ALU: %s" % toString(busy(self.STATE.ALUs))
+        print "Busy - ALU: %s" % toString(busy(self.STATE.MUs))
+        print "Busy - ALU: %s" % toString(busy(self.STATE.DUs))
         print "Busy - LSU: %s" % toString(busy(self.STATE.LSUs))
         print "Busy - BU: %s" % toString(busy(self.STATE.BUs))
 

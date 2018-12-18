@@ -1,7 +1,7 @@
 import assembler
 from frontend_components import InstructionQueue, ReseravationStation, RegisterAliasTable
 from backend_components import ReorderBuffer, LoadStoreQueue, CommonDataBus
-from execution_units import ALU, LSU, BU
+from execution_units import ALU, MU, DU, LSU, BU
 from branch_prediction import BranchTargetAddressCache, BranchTargetInstructionCache, LocalBranchHistoryBuffers, PatternHistoryTables, RegisterAddressStackCheckpoint
 
 class State(object):
@@ -23,12 +23,16 @@ class State(object):
         self.RAS = []
         self.RAS_MAX = 16
         self.UNSTORED_JALS = 0
-        self.ALUs = [ALU(), ALU()]
-        self.ALU_RS = ReseravationStation(self.ALUs, size=5)
+        self.DUs = [DU()]
+        self.DU_RS = ReseravationStation(self.DUs, size=8)
+        self.MUs = [MU(), MU()]
+        self.MU_RS = ReseravationStation(self.MUs, size=12)
+        self.ALUs = [ALU(), ALU(), ALU(), ALU()]
+        self.ALU_RS = ReseravationStation(self.ALUs, size=16)
         self.BUs = [BU()]
-        self.BU_RS = ReseravationStation(self.BUs, size=5)
-        self.LSUs = [LSU()]
-        self.LSU_RS = ReseravationStation(self.LSUs, size=5)
+        self.BU_RS = ReseravationStation(self.BUs, size=8)
+        self.LSUs = [LSU(), LSU()]
+        self.LSU_RS = ReseravationStation(self.LSUs, size=12)
         self.RAT = RegisterAliasTable()
         self.ROB = ReorderBuffer(100)
         self.LSQ = LoadStoreQueue(100)

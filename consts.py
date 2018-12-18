@@ -14,9 +14,10 @@ REGISTER_MNEMONICS = {
     "$hi": 32, "$lo": 33,
 }
 
-RTYPE_OPCODES = ["add", "addi", "sub", "subi", "mul", "mod", "div"]
-LOAD_OPCODES = ["lw"]
-STORE_OPCODES = ["sw"]
+ALU_OPCODES = ["add", "addi", "sub", "subi"]
+MUL_OPCODES = ["mul"]
+DIV_OPCODES = ["div", "mod"]
+LOAD_STORE_OPCODES = ["lw", "sw"]
 COND_BRANCH_OPCODES = ["beq", "bne", "bgt", "bge", "blt", "ble"]
 UNCOND_JUMP_OPCODES = ["j", "jal"]
 N_BIT_HISTORY = 2
