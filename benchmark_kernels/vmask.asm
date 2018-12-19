@@ -23,7 +23,7 @@ vload $vr1 $s1 $s4
 # Compute vector mask
 vcmpeq $vr0 $vr1 $vr2
 # Copy based on mask
-vblend $vr0 $vr1 $vr2 $vr3
+vblend $vr3 $vr0 $vr1 $vr2
 # Store to c
 vstore $vr3 $s2 $s4
 # Increment loop/vector counter

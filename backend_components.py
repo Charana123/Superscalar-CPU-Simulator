@@ -1,7 +1,8 @@
 from util import toString, getNextUUID
-from consts import REGISTER_MNEMONICS
-from functional import first, generate
+from consts import REGISTER_MNEMONICS, VECTOR_LENGTH, ALU_OPCODES, MUL_OPCODES, DIV_OPCODES, VALU_OPCODES, VMUL_OPCODES, VDIV_OPCODES, VOTHER_OPCODES
+from functional import first, generate, alll
 from branch_prediction import getLatestBranchHistory, getBTIAC
+import numpy as np
 import abc
 
 
@@ -129,18 +130,22 @@ class ReorderBuffer(CircularBuffer):
         vacant_rob_entry.Valid = False
         vacant_rob_entry.Value = None
         print("inst[opcode]", inst["opcode"])
-        if inst["opcode"] in ["add", "addi", "sub", "subi", "mul", "div", "mod"]:
+        if inst["opcode"] in ALU_OPCODES + MUL_OPCODES + DIV_OPCODES + VALU_OPCODES + VMUL_OPCODES + VDIV_OPCODES + VOTHER_OPCODES:
             vacant_rob_entry.op_type = "r_type"
             vacant_rob_entry.Areg = inst["arg1"]
         elif inst["opcode"] == "jal":
             vacant_rob_entry.op_type = "r_type"
             vacant_rob_entry.Areg = "$ra"
-        elif inst["opcode"] in ["lw", "sw"]:
+        elif inst["opcode"] in ["lw", "sw", "vload", "vstore"]:
             STATE.LSQ.issue(STATE, inst)
             if inst["opcode"] == "lw":
                 vacant_rob_entry.op_type = "load"
             if inst["opcode"] == "sw":
                 vacant_rob_entry.op_type = "store"
+            if inst["opcode"] == "vload":
+                vacant_rob_entry.op_type = "vector_load"
+            if inst["opcode"] == "vstore":
+                vacant_rob_entry.op_type = "vector_store"
         elif inst["opcode"] == "syscall":
             vacant_rob_entry.op_type = "syscall"
         elif inst["opcode"] in ["beq", "bne", "bgt", "bge", "blt", "ble"]:
@@ -169,7 +174,7 @@ class ReorderBuffer(CircularBuffer):
         STATE.RETIRED_INSTRUCTIONS += 1
 
         retire_rob_entry = self.entries[self.commit_ptr]
-        if retire_rob_entry.op_type in ["load", "store"]:
+        if retire_rob_entry.op_type in ["vector_load", "vector_store", "load", "store"]:
             try:
                 ok = STATE.LSQ.commit(STATE)
                 return ok
@@ -218,9 +223,9 @@ class ReorderBuffer(CircularBuffer):
             if not retire_rob_entry.Valid:
                 return False
             else:
-                STATE.REGISTER_FILE[REGISTER_MNEMONICS[retire_rob_entry.Areg]] = retire_rob_entry.Value
+                STATE.setRegisterValue(retire_rob_entry.Areg, retire_rob_entry.Value)
                 STATE.RAT.commit(retire_rob_entry.inst_seq_id)
-                print "REGISTER_FILE[REGISTER_MNEMONICS[%s]] = %d" % (retire_rob_entry.Areg, retire_rob_entry.Value)
+                # print "REGISTER_FILE[REGISTER_MNEMONICS[%s]] = %d" % (retire_rob_entry.Areg, retire_rob_entry.Value)
                 return True
         if retire_rob_entry.op_type == "noop":
             return True
@@ -239,6 +244,7 @@ class LoadStoreQueue(CircularBuffer):
             self.inst_seq_id = None
             self.pc = None
             self.Store = None
+	    self.isVectorOperation = None
             self.load_dest = None
             self.Address = None  # Address to (load from)/(store to)
             self.ValidA = False  # if address has been resolved
@@ -288,17 +294,33 @@ class LoadStoreQueue(CircularBuffer):
         lsq_entry.Address = address; lsq_entry.ValidA = True
         lsq_entry.Value = value; lsq_entry.ValidV = True
         # Create/Update memory - address to value mapping (store to load forwarding)
-        self.add_to_store_map[address] = value
+	if lsq_entry.isVectorOperation:
+            for i in range(VECTOR_LENGTH):
+                print("xxxtentacion store")
+                print("address store", address + i)
+		self.add_to_store_map[address + i] = value[i]
+                print("self.add_to_store_map store", self.add_to_store_map)
+	else:
+	    self.add_to_store_map[address] = value
 
     def writeback_load(self, STATE, inst_seq_id, address):
         lsq_entry = self.findLSQEntry(inst_seq_id)
         lsq_entry.Address = address; lsq_entry.ValidA = True
         # Read from latest LSQ entry in preference to from cache (store to load forwarding)
-        if address in self.add_to_store_map:
-            lsq_entry.Value = self.add_to_store_map[address]
-        else:
-            lsq_entry.Value = STATE.STACK[address]
         lsq_entry.ValidV = True
+        print("self.add_to_store_map load", self.add_to_store_map)
+	def storeToLoadForward(address):
+            print("xxxtentacion load")
+            print("address load", address)
+	    if address in self.add_to_store_map:
+		return self.add_to_store_map[address]
+	    else:
+		return STATE.STACK[address]
+	if lsq_entry.isVectorOperation:
+	    lsq_entry.Value = np.array([storeToLoadForward(address+i) for i in range(VECTOR_LENGTH)])
+	else:
+	    lsq_entry.Value = storeToLoadForward(address)
+
         return lsq_entry.Value
 
     def issue(self, STATE, inst):
@@ -307,7 +329,8 @@ class LoadStoreQueue(CircularBuffer):
     def issue_impl(self, STATE, inst):
         vacant_lsq_entry = self.entries[self.issue_ptr]
         vacant_lsq_entry.inst_seq_id = inst["inst_seq_id"]
-        vacant_lsq_entry.Store = inst["opcode"] == "sw"
+        vacant_lsq_entry.Store = inst["opcode"] in ["sw", "vstore"]
+	vacant_lsq_entry.isVectorOperation = inst["opcode"] in ["vstore", "vload"]
         vacant_lsq_entry.Value = None; vacant_lsq_entry.ValidV = None
         vacant_lsq_entry.Address = None; vacant_lsq_entry.ValidA = None
         if not vacant_lsq_entry.Store:
@@ -327,15 +350,24 @@ class LoadStoreQueue(CircularBuffer):
         if not retire_lsq_entry.ValidA or not retire_lsq_entry.ValidV:
             return False
         if retire_lsq_entry.Store:
-            STATE.STACK[retire_lsq_entry.Address] = retire_lsq_entry.Value
-            print "STACK[%s] = %d" % (retire_lsq_entry.Address, retire_lsq_entry.Value)
+	    if retire_lsq_entry.isVectorOperation:
+		for i in range(VECTOR_LENGTH):
+		    STATE.STACK[retire_lsq_entry.Address + i] = retire_lsq_entry.Value[i]
+	    else:
+		STATE.STACK[retire_lsq_entry.Address] = retire_lsq_entry.Value
+            # print "STACK[%s] = %d" % (retire_lsq_entry.Address, retire_lsq_entry.Value)
             return True
         else:
-            if retire_lsq_entry.Value != STATE.STACK[retire_lsq_entry.Address]:
+	    if retire_lsq_entry.isVectorOperation:
+                print("xxx", retire_lsq_entry.Value)
+		mem_violation = alll(lambda i: retire_lsq_entry.Value[i] != STATE.STACK[retire_lsq_entry.Address + i], range(VECTOR_LENGTH))
+	    else:
+		mem_violation = retire_lsq_entry.Value != STATE.STACK[retire_lsq_entry.Address]
+            if mem_violation:
                 raise LoadStoreQueue.LSQViolation("LSQViolation", retire_lsq_entry.inst_seq_id)
             else:
                 # Update Load Register and RAT Entry
-                STATE.REGISTER_FILE[REGISTER_MNEMONICS[retire_lsq_entry.load_dest]] = retire_lsq_entry.Value
+		STATE.setRegisterValue(retire_lsq_entry.load_dest, retire_lsq_entry.Value)
                 STATE.RAT.commit(retire_lsq_entry.inst_seq_id)
                 return True
 
@@ -355,10 +387,10 @@ class CommonDataBus(object):
             syscall_type = writeback["syscall_type"]
             # Fill ROB entries of syscall instructions
             self.STATE.ROB.writeback_syscall(inst_seq_id, syscall_type)
-        if ttype == "register":
+        if ttype in ["register", "vector_register"]:
             result = writeback["result"]
             # Fill ReservationStation Entries
-            for rs in [self.STATE.ALU_RS, self.STATE.MU_RS, self.STATE.DU_RS, self.STATE.LSU_RS, self.STATE.BU_RS]:
+            for rs in [self.STATE.ALU_RS, self.STATE.MU_RS, self.STATE.DU_RS, self.STATE.LSU_RS, self.STATE.BU_RS, self.STATE.VALU_RS, self.STATE.VMU_RS, self.STATE.VDU_RS, self.STATE.VLSU_RS]:
                 rs.writeback_rtype_or_load(STATE, inst_seq_id, result)
             # Fill ROB entries for rtype instructions
             self.STATE.ROB.writeback_rtype(inst_seq_id, result)
@@ -369,7 +401,7 @@ class CommonDataBus(object):
             # Notify ROB branch entry
             self.STATE.ROB.writeback_branch(inst_seq_id, correct_speculation)
         # Fill LSQ entries for load/store instructions
-        if ttype == "load":
+        if ttype in ["load", "vector_load"]:
             address = writeback["address"]
             value = self.STATE.LSQ.writeback_load(self.STATE, inst_seq_id, address)
             # Fill ReservationStation Entries
@@ -377,7 +409,7 @@ class CommonDataBus(object):
                 rs.writeback_rtype_or_load(STATE, inst_seq_id, value)
             # Pending = False, for RAT entries
             self.STATE.RAT.writeback(inst_seq_id)
-        if ttype == "store":
+        if ttype in ["store", "vector_store"]:
             address = writeback["address"]
             store_value = writeback["store_value"]
             self.STATE.LSQ.writeback_store(inst_seq_id, address, store_value)

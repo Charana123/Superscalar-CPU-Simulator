@@ -1,14 +1,14 @@
 main:
 # Load s0,s1,s2 with the heap addresses of vectors a,b,c
-li $s0 c0
-li $s1 c40
-li $s2 c80
+li $s0 c30
+li $s1 c31
+li $s2 c32
 # Copy vector length into s2
 li $s3 c4
 # Loop counter
 li $s4 c0
 # Loop max
-li $s5 c100
+li $s5 c1
 j loop
 
 # for (int i = 0; i < N; j++){

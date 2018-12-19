@@ -4,7 +4,7 @@ import backend_components
 from functional import first, anyy, alll
 from state import State
 from util import getNextUUID, toString
-from consts import ALU_OPCODES, MUL_OPCODES, DIV_OPCODES, LOAD_STORE_OPCODES, COND_BRANCH_OPCODES, UNCOND_JUMP_OPCODES
+from consts import ALU_OPCODES, MUL_OPCODES, DIV_OPCODES, LOAD_STORE_OPCODES, COND_BRANCH_OPCODES, UNCOND_JUMP_OPCODES, VALU_OPCODES, VMUL_OPCODES, VDIV_OPCODES, VLSU_OPCODES, VOTHER_OPCODES
 from debugger import Debugger
 
 def run():
@@ -30,6 +30,9 @@ def runCycle():
     decode()
     fetch()
     if should_exit:
+        print "Stack: %s" % toString(STATE.STACK)
+        print "Register File: %s" % toString(STATE.REGISTER_FILE)
+        print "Vector Register File: %s" % toString(STATE.VECTOR_REGISTER_FILE)
         print("Program Returned Successfully")
         print("STATE.RETIRED_INSTRUCTIONS = %d" % STATE.RETIRED_INSTRUCTIONS)
         print("STATE.TOTAL_CYCLES = %d" % STATE.TOTAL_CYCLES)
@@ -185,6 +188,11 @@ def decode():
             STATE.RASC.saveCheckpoint(inst["inst_seq_id"], STATE.RAS)
             STATE.INSTRUCTION_QUEUE.push(inst)
 
+        elif inst["opcode"] == "vload":
+            # Checkpoint RAS
+            STATE.RASC.saveCheckpoint(inst["inst_seq_id"], STATE.RAS)
+            STATE.INSTRUCTION_QUEUE.push(inst)
+
         else:
             # Push to instruction queue
             STATE.INSTRUCTION_QUEUE.push(inst)
@@ -199,17 +207,24 @@ def issue():
         if inst is None:
             return
 
+        # Create the execution units, Create the vector registers, Connect the RS to the Vector registers
         nofreeRS = (inst["opcode"] in ALU_OPCODES and not STATE.ALU_RS.freeRSAvailable()) or \
             (inst["opcode"] in MUL_OPCODES and not STATE.MU_RS.freeRSAvailable()) or \
             (inst["opcode"] in DIV_OPCODES and not STATE.DU_RS.freeRSAvailable()) or \
             (inst["opcode"] in LOAD_STORE_OPCODES and not STATE.LSU_RS.freeRSAvailable()) or \
-            (inst["opcode"] in COND_BRANCH_OPCODES + ["jr", "jal", "syscall"] and not STATE.BU_RS.freeRSAvailable())
+            (inst["opcode"] in COND_BRANCH_OPCODES + ["jr", "jal", "syscall"] and not STATE.BU_RS.freeRSAvailable()) or \
+            (inst["opcode"] in VALU_OPCODES + VOTHER_OPCODES and not STATE.VALU_RS.freeRSAvailable()) or \
+            (inst["opcode"] in VMUL_OPCODES and not STATE.VMU_RS.freeRSAvailable()) or \
+            (inst["opcode"] in VDIV_OPCODES and not STATE.VDU_RS.freeRSAvailable()) or \
+            (inst["opcode"] in VLSU_OPCODES and not STATE.VLSU_RS.freeRSAvailable())
 
         if nofreeRS or STATE.ROB.FULL or STATE.LSQ.FULL:
             return
 
         STATE.INSTRUCTION_QUEUE.pop()
+
         # issue into RS
+        # basic operations
         if inst["opcode"] in ALU_OPCODES:
             STATE.ALU_RS.issue(STATE, inst)
         if inst["opcode"] in MUL_OPCODES:
@@ -218,8 +233,19 @@ def issue():
             STATE.DU_RS.issue(STATE, inst)
         if inst["opcode"] in LOAD_STORE_OPCODES:
             STATE.LSU_RS.issue(STATE, inst)
+        # vector operations
+        if inst["opcode"] in VALU_OPCODES + VOTHER_OPCODES:
+            STATE.VALU_RS.issue(STATE, inst)
+        if inst["opcode"] in VMUL_OPCODES:
+            STATE.VMU_RS.issue(STATE, inst)
+        if inst["opcode"] in VDIV_OPCODES:
+            STATE.VDU_RS.issue(STATE, inst)
+        if inst["opcode"] in VLSU_OPCODES:
+            STATE.VLSU_RS.issue(STATE, inst)
+        # branch instructions
         if inst["opcode"] in COND_BRANCH_OPCODES + ["noop", "jr", "jal", "syscall"]:
             STATE.BU_RS.issue(STATE, inst)
+
         # create ROB entry
         STATE.ROB.issue(STATE, inst)
         # Update RAT to point instruction 'dest' to inst_seq_id that will have the latest value of that register
@@ -231,7 +257,7 @@ def dispatch():
 
     for _ in range(4):
         # go through reservation stations and call the dipatch instruction
-        for rs in [STATE.ALU_RS, STATE.MU_RS, STATE.DU_RS, STATE.LSU_RS, STATE.BU_RS]:
+        for rs in [STATE.ALU_RS, STATE.MU_RS, STATE.DU_RS, STATE.LSU_RS, STATE.BU_RS, STATE.VALU_RS, STATE.VMU_RS, STATE.VDU_RS, STATE.VLSU_RS]:
             rs.dispatch(STATE)
 
 
@@ -239,11 +265,11 @@ def execute():
     global STATE
 
     # Step all OCCUPIED function units
-    for inuse_fu in STATE.ALUs + STATE.MUs + STATE.DUs + STATE.LSUs + STATE.BUs:
+    for inuse_fu in STATE.ALUs + STATE.MUs + STATE.DUs + STATE.LSUs + STATE.BUs + STATE.VALUs + STATE.VMUs + STATE.VDUs + STATE.VLSUs:
         inuse_fu.step(STATE)
     # Set to the writeback stage a set of instructions that can write its
     # computation to the STATE.ROB
-    fin_fus = [fu for fu in STATE.ALUs + STATE.MUs + STATE.DUs + STATE.LSUs + STATE.BUs if fu.isFinished()]
+    fin_fus = [fu for fu in STATE.ALUs + STATE.MUs + STATE.DUs + STATE.LSUs + STATE.BUs + STATE.VALUs + STATE.VMUs + STATE.VDUs + STATE.VLSUs if fu.isFinished()]
     # Skip if nothing to writeback this cycle
     if len(fin_fus) == 0:
         STATE.PIPELINE["writeback"] = []
@@ -252,14 +278,22 @@ def execute():
     def fu_sort(fu_ttype):
         if fu_ttype == "alu":
             return 1
+	if fu_ttype == "valu":
+	    return 2
         if fu.ttype == "mu":
-            return 2
-        if fu_ttype == "lsu":
             return 3
-        if fu_ttype == "du":
+        if fu.ttype == "vmu":
             return 4
-        if fu_ttype == "bu":
+        if fu_ttype == "lsu":
             return 5
+        if fu_ttype == "vlsu":
+            return 6
+        if fu_ttype == "du":
+            return 7
+        if fu_ttype == "vdu":
+            return 8
+        if fu_ttype == "bu":
+            return 9
     fin_fus = sorted(fin_fus, key=lambda writeback: fu_sort(writeback.ttype))
     highest_prorioty_fus = fin_fus[:4]
     STATE.PIPELINE["writeback"] = [fu.getOutput() for fu in highest_prorioty_fus]

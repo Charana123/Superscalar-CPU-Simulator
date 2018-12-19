@@ -131,6 +131,8 @@ class Debugger(object):
 
     def printRegisters(self):
         print "Register File: %s" % toString(self.STATE.REGISTER_FILE)
+        print "Vector Register File: %s" % toString(self.STATE.VECTOR_REGISTER_FILE)
+
 
     def printInstructionQueue(self):
         print "Instruction Queue: %s" % toString(self.STATE.INSTRUCTION_QUEUE)

@@ -11,7 +11,10 @@ REGISTER_MNEMONICS = {
     "$sp": 29,  # stack pointer
     "$fp": 30,  # frame  pointer (used to store prior value of $sp before stack frame is pushed)
     "$ra": 31,  # return address (stores PC on jump and link instruction i.e. jal)
-    "$hi": 32, "$lo": 33,
+}
+
+VECTOR_REGISTER_MNEMONICS = {
+    "$vrzero": 0, "$vr0": 1, "$vr1": 2, "$vr2": 3, "$vr3": 4, "$vr4": 5, "$vr5": 6, "$vr6": 7, "$vr7": 8 # architectural vector registers
 }
 
 ALU_OPCODES = ["add", "addi", "sub", "subi"]
@@ -21,3 +24,11 @@ LOAD_STORE_OPCODES = ["lw", "sw"]
 COND_BRANCH_OPCODES = ["beq", "bne", "bgt", "bge", "blt", "ble"]
 UNCOND_JUMP_OPCODES = ["j", "jal"]
 N_BIT_HISTORY = 2
+
+VALU_OPCODES = ["vadd", "vaddi", "vsub", "vsubi", "vcmpeq", "vcmpgt", "vcmplt"]
+VOTHER_OPCODES = ["vblend"]
+VMUL_OPCODES = ["vmul"]
+VDIV_OPCODES = ["vdiv"]
+VLSU_OPCODES = ["vstore", "vload"]
+VECTOR_LENGTH = 4
+

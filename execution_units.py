@@ -1,6 +1,8 @@
 from util import toString
 from consts import COND_BRANCH_OPCODES
 from branch_prediction import makePrediction, updatePrediction
+from functional import alll, anyy
+import numpy as np
 import abc
 
 class BaseUnit(object):
@@ -345,7 +347,7 @@ class BU(BaseUnit):
 class VALU(BaseUnit):
 
     def __init__(self):
-        self.CYCLES_PER_OPERATION = 4
+        self.CYCLES_PER_OPERATION = 2
         super(VALU, self).__init__("valu")
 
     def __str__(self):
@@ -373,11 +375,37 @@ class VALU(BaseUnit):
                 self.output[self.CYCLES_PER_OPERATION-2] = None
 
     def compute(self, STATE, inputt):
-        if inputt["opcode"] == "mul":
+        if inputt["opcode"] in ["vadd", "vaddi"]:
             output = {
                 "inst_seq_id": inputt["inst_seq_id"],
-                "ttype": "register",
-                "result": inputt["src1"] * inputt["src2"]
+                "ttype": "vector_register",
+                "result": inputt["src1"] + inputt["src2"]
+            }
+        elif inputt["opcode"] in ["vsub", "vsubi"]:
+            output = {
+                "inst_seq_id": inputt["inst_seq_id"],
+                "ttype": "vector_register",
+                "result": inputt["src1"] - inputt["src2"]
+            }
+	elif inputt["opcode"] in ["vcmpeq", "vcmpgt", "vcmplt"]:
+	    output = {
+		"inst_seq_id": inputt["inst_seq_id"],
+		"ttype": "vector_register",
+	    }
+	    if inputt["opcode"] == "vcmpeq":
+		output["result"] = (inputt["src1"] == inputt["src2"]).astype(int)
+	    elif inputt["opcode"] == "vcmpgt":
+		output["result"] = (inputt["src1"] > inputt["src2"]).astype(int)
+	    elif inputt["opcode"] == "vcmplt":
+		output["result"] = (inputt["src1"] < inputt["src2"]).astype(int)
+	    else:
+		print("invalid mask op")
+		exit()
+	elif inputt["opcode"] == "vblend":
+            output = {
+                "inst_seq_id": inputt["inst_seq_id"],
+                "ttype": "vector_register",
+                "result": np.where(inputt["mask"], inputt["src1"], inputt["src2"])
             }
         else:
             print("invalid VALU op")
@@ -388,7 +416,7 @@ class VALU(BaseUnit):
 class VMU(BaseUnit):
 
     def __init__(self):
-        self.CYCLES_PER_OPERATION = 2
+        self.CYCLES_PER_OPERATION = 5
         super(VMU, self).__init__("vmu")
 
     def __str__(self):
@@ -416,22 +444,22 @@ class VMU(BaseUnit):
                 self.output[self.CYCLES_PER_OPERATION-2] = None
 
     def compute(self, STATE, inputt):
-        if inputt["opcode"] == "mul":
+        if inputt["opcode"] == "vmul":
             output = {
                 "inst_seq_id": inputt["inst_seq_id"],
-                "ttype": "register",
+                "ttype": "vector_register",
                 "result": inputt["src1"] * inputt["src2"]
             }
         else:
             print("invalid VMU op")
             exit()
-        return ouput
+        return output
 
 
 class VDU(BaseUnit):
 
     def __init__(self):
-        self.CYCLES_PER_OPERATION = 2
+        self.CYCLES_PER_OPERATION = 7
         super(VDU, self).__init__("vdu")
 
     def __str__(self):
@@ -459,22 +487,35 @@ class VDU(BaseUnit):
                 self.output[self.CYCLES_PER_OPERATION-2] = None
 
     def compute(self, STATE, inputt):
-        if inputt["opcode"] == "mul":
+        if inputt["opcode"] == "vdiv":
+            if anyy(lambda v: v == 0, inputt["src2"]):
+                print("divide by zero exception")
+                exit()
             output = {
                 "inst_seq_id": inputt["inst_seq_id"],
-                "ttype": "register",
-                "result": inputt["src1"] * inputt["src2"]
+                "ttype": "vector_register",
+                "result": inputt["src1"] / inputt["src2"]
+            }
+        elif inputt["opcode"] == "vmod":
+            if anyy(lambda v: v == 0, inputt["src2"]):
+                print("divide by zero exception")
+                exit()
+            output = {
+                "inst_seq_id": inputt["inst_seq_id"],
+                "ttype": "vector_register",
+                "result": inputt["src1"] % inputt["src2"]
             }
         else:
             print("invalid VDU op")
             exit()
         return output
 
+
 class VLSU(BaseUnit):
 
     def __init__(self):
-        self.CYCLES_PER_OPERATION = 2
-        super(VLSU, self).__init__("Vector ALU Unit")
+        self.CYCLES_PER_OPERATION = 5
+        super(VLSU, self).__init__("vlsu")
 
     def __str__(self):
         return super(VLSU, self).__str__()
@@ -501,11 +542,18 @@ class VLSU(BaseUnit):
                 self.output[self.CYCLES_PER_OPERATION-2] = None
 
     def compute(self, STATE, inputt):
-        if inputt["opcode"] == "mul":
+        if inputt["opcode"] == "vload":
             output = {
                 "inst_seq_id": inputt["inst_seq_id"],
-                "ttype": "register",
-                "result": inputt["src1"] * inputt["src2"]
+                "ttype": "vector_load",
+                "address": inputt["add1"] + inputt["add2"]
+            }
+        elif inputt["opcode"] == "vstore":
+            output = {
+                "inst_seq_id": inputt["inst_seq_id"],
+                "ttype": "vector_store",
+                "address": inputt["add1"] + inputt["add2"],
+                "store_value": inputt["src"]
             }
         else:
             print("invalid VLSU op")

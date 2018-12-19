@@ -22,6 +22,7 @@ def readProgram(filename):
                 "arg1": temp[1] if len(temp) > 1 else -1,
                 "arg2": temp[2] if len(temp) > 2 else -1,
                 "arg3": temp[3] if len(temp) > 3 else -1,
+                "arg4": temp[4] if len(temp) > 4 else -1,
             }
         return line
 
@@ -36,11 +37,14 @@ def readProgram(filename):
     def transformPseudoInstructions(inst):
         if isinstance(inst, dict):
             if inst["opcode"] == "move":
-                            inst["opcode"] = "add"
-                            inst["arg3"] = "$zero"
+                    inst["opcode"] = "add"
+                    inst["arg3"] = "$zero"
             if inst["opcode"] == "li":
-                            inst["opcode"] = "addi"
-                            inst["arg3"] = "$zero"
+                    inst["opcode"] = "addi"
+                    inst["arg3"] = "$zero"
+            if inst["opcode"] == "vli":
+                inst["opcode"] = "vaddi"
+                inst["arg3"] = "$vrzero"
         return inst
 
     # for label, insts in program.iteritems():

@@ -1,7 +1,7 @@
 from util import toString
 from functional import first, anyy, alll, generate
-from consts import REGISTER_MNEMONICS
-from consts import ALU_OPCODES, MUL_OPCODES, DIV_OPCODES, LOAD_STORE_OPCODES, COND_BRANCH_OPCODES
+from consts import REGISTER_MNEMONICS, VECTOR_REGISTER_MNEMONICS
+from consts import ALU_OPCODES, MUL_OPCODES, DIV_OPCODES, LOAD_STORE_OPCODES, COND_BRANCH_OPCODES, VALU_OPCODES, VMUL_OPCODES, VDIV_OPCODES, VLSU_OPCODES, VOTHER_OPCODES
 
 
 class InstructionQueue(object):
@@ -63,32 +63,39 @@ class RegisterAliasTable(object):
         self.flush()
 
     def __str__(self):
-        invalid_entries = filter(lambda (key, val): not val.Valid, self.entries.items())
+        invalid_entries = filter(lambda (key, val): not val.Valid, self.entries.items() + self.vector_entries.items())
         return toString(invalid_entries)
 
     def flush(self):
         self.entries = dict([(key, self.RegisterAliasTableEntry()) for key in REGISTER_MNEMONICS.keys()])
+        self.vector_entries = dict([(key, self.RegisterAliasTableEntry()) for key in VECTOR_REGISTER_MNEMONICS.keys()])
 
     def __getitem__(self, key):
-        return self.entries[key]
+        if key[1:3] == 'vr':
+            return self.vector_entries[key]
+        else:
+            return self.entries[key]
 
     def issue(self, inst):
         if inst["opcode"] in ALU_OPCODES + MUL_OPCODES + DIV_OPCODES + ["lw"]:
             dest_reg = inst["arg1"]
             inst_seq_id = inst["inst_seq_id"]
             self.entries[dest_reg].issue(inst_seq_id)
+        if inst["opcode"] in VOTHER_OPCODES + VALU_OPCODES + VMUL_OPCODES + VDIV_OPCODES + ["vload"]:
+            dest_reg = inst["arg1"]
+            inst_seq_id = inst["inst_seq_id"]
+            self.vector_entries[dest_reg].issue(inst_seq_id)
         if inst["opcode"] == "jal":
             inst_seq_id = inst["inst_seq_id"]
-
             self.entries["$ra"].issue(inst_seq_id)
 
     def commit(self, inst_seq_id):
-        dependant_entries = [entry for entry in self.entries.items() if entry[1].inst_seq_id == inst_seq_id]
+        dependant_entries = [entry for entry in self.entries.items() + self.vector_entries.items() if entry[1].inst_seq_id == inst_seq_id]
         for entry in dependant_entries:
             entry[1].commit()
 
     def writeback(self, inst_seq_id):
-        dependant_entries = [entry for entry in self.entries.items() if entry[1].inst_seq_id == inst_seq_id]
+        dependant_entries = [entry for entry in self.entries.items() + self.vector_entries.items() if entry[1].inst_seq_id == inst_seq_id]
         for entry in dependant_entries:
             entry[1].writeback()
 
@@ -139,10 +146,22 @@ class ReseravationStation(object):
             if inst["opcode"] in ALU_OPCODES + MUL_OPCODES + DIV_OPCODES:
                 tags = [(inst["arg1"], "dest")]
                 values = [(inst["arg2"], "src1"), (inst["arg3"], "src2")]
+            if inst["opcode"] in VALU_OPCODES + VMUL_OPCODES + VDIV_OPCODES:
+                tags = [(inst["arg1"], "dest")]
+                values = [(inst["arg2"], "src1"), (inst["arg3"], "src2")]
+            if inst["opcode"] == "vblend":
+                tags = [(inst["arg1"], "dest")]
+                values = [(inst["arg2"], "src1"), (inst["arg3"], "src2"), (inst["arg4"], "mask")]
             if inst["opcode"] == "lw":
                 tags = [(inst["arg1"], "dest")]
                 values = [(inst["arg2"], "add1"), (inst["arg3"], "add2")]
             if inst["opcode"] == "sw":
+                tags = []
+                values = [(inst["arg1"], "src"), (inst["arg2"], "add1"), (inst["arg3"], "add2")]
+            if inst["opcode"] == "vload":
+                tags = [(inst["arg1"], "dest")]
+                values = [(inst["arg2"], "add1"), (inst["arg3"], "add2")]
+            if inst["opcode"] == "vstore":
                 tags = []
                 values = [(inst["arg1"], "src"), (inst["arg2"], "add1"), (inst["arg3"], "add2")]
             if inst["opcode"] in COND_BRANCH_OPCODES:
@@ -163,7 +182,7 @@ class ReseravationStation(object):
                     if RAT_Entry.Valid:
                         print(label, "one")
                         # Read from register file
-                        value = STATE.REGISTER_FILE[REGISTER_MNEMONICS[value_src]]
+			value = STATE.getRegisterValue(value_src)
                         return (value, True, label)
                     if not RAT_Entry.Valid and not RAT_Entry.Pending:
                         print(label, "two")
