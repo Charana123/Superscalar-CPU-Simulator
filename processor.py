@@ -1,5 +1,5 @@
 import sys
-from branch_prediction import makePrediction, getBTIAC, createBTIACEntries, deleteBTIACEntries
+from branch_prediction import getBTIAC, createBTIACEntries, deleteBTIACEntries
 import backend_components
 from functional import first, anyy, alll
 from state import State
@@ -155,10 +155,12 @@ def decode():
             # Checkpoint RAS
             STATE.RASC.saveCheckpoint(inst["inst_seq_id"], STATE.RAS)
             # Make a branch speculation (ie. always
-            taken = makePrediction(inst["pc"], STATE)
+            taken = STATE.BP.makePrediction(inst["pc"], inst["inst_seq_id"])
             if taken:
                 STATE.PC = inst["arg3"] + 1
                 STATE.INSTRUCTION_QUEUE.push(inst)
+                # If we fetched beyond the branch to the end of the function
+                STATE.PIPELINE_STALLED = False
                 # Flush instructions after branch
                 return
             else:

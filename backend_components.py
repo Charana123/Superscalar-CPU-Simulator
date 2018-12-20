@@ -1,7 +1,7 @@
 from util import toString, getNextUUID
 from consts import REGISTER_MNEMONICS, VECTOR_LENGTH, ALU_OPCODES, MUL_OPCODES, DIV_OPCODES, VALU_OPCODES, VMUL_OPCODES, VDIV_OPCODES, VOTHER_OPCODES
 from functional import first, generate, alll
-from branch_prediction import getLatestBranchHistory, getBTIAC
+from branch_prediction import getBTIAC
 import numpy as np
 import abc
 
@@ -198,9 +198,8 @@ class ReorderBuffer(CircularBuffer):
             # The branch was incorrect predicted
             elif retire_rob_entry.Value == 0:
                 print("ROBViolation")
+                taken = STATE.BP.getLatestBranchHistory(retire_rob_entry.pc, retire_rob_entry.inst_seq_id)
                 # Update PC
-                taken = getLatestBranchHistory(retire_rob_entry.pc, STATE)
-                print("prediction fixed", taken)
                 if taken:
                     TA, TI = getBTIAC(retire_rob_entry.pc, STATE)
                     STATE.PC = TA + 2

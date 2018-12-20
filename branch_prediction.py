@@ -1,135 +1,29 @@
 from functional import generate, first
 from util import toString
-from consts import N_BIT_HISTORY
+import abc
 
-
-################################# Branch Prediction #####################################3
-
-class LocalBranchHistoryBuffers(object):
-
-    class LocalBranchHistoryBufferEntry(object):
-        def __init__(self):
-            self.history = []
-
-        def update(self, taken):
-            self.history.append(taken)
-            self.history = self.history[-N_BIT_HISTORY:]
-
-        def __str__(self):
-            return "history: %s" % toString(self.history)
-
-        def __repr__(self):
-            return self.__str__()
-
+################# BRANCH PREDICTOR ######################
+class BaseBranchPredictor(object):
     def __init__(self):
-        self.entries = {}
+        pass
 
-    def __str__(self):
-        return toString(self.entries.items())
+    @abc.abstractmethod
+    def getLatestBranchHistory(branch_pc, branch_inst_seq_id):
+        pass
 
-    def __repr__(self):
-        return self.__repr__()
+    @abc.abstractmethod
+    def getLatestSpeculativeBranchHistory(branch_pc, branch_inst_seq_id):
+        pass
 
-    def getBranchHistory(self, branch_pc):
-        if branch_pc not in self.entries.keys():
-            self.entries[branch_pc] = LocalBranchHistoryBuffers.LocalBranchHistoryBufferEntry()
-        return self.entries[branch_pc]
+    @abc.abstractmethod
+    def makePrediction(branch_pc, branch_inst_seq_id):
+        pass
 
-    def update(self, branch_pc, taken):
-        self.entries[branch_pc].update(taken)
-
-
-class PatternHistoryTables(object):
-
-    class PatternHistoryTableEntry():
-
-        def __init__(self):
-            # An N-bit branch-history has 2^N possible branch-histories
-            self.histories = 2 ** N_BIT_HISTORY
-            # The prediction for every branch-history is set to 'weakly not taken'
-            # as conditions represent forward jumps and are speculatively not taken
-            self.entries = [2] * self.histories
-            self.taken = [False] * self.histories
-
-        def update(self, pattern_idx, taken):
-            self.entries[pattern_idx] += 1 if taken else -1
-            self.entries[pattern_idx] = self.clamp(self.entries[pattern_idx], 4, 0)
-            self.taken[pattern_idx] = True if self.entries[pattern_idx] > 2 else False
-
-        def clamp(self, value, maxi, mini):
-            if value > maxi:
-                return maxi
-            elif value < mini:
-                return mini
-            else:
-                return value
-
-        def __str__(self):
-            return str({
-                "entries": toString(self.entries),
-                "taken": toString(self.taken)
-            })
-
-        def __repr__(self):
-            return self.__str__()
-
-    def bitStringToInteger(self, BHB_Entry):
-        return reduce(lambda acc, (i, taken): acc + (taken * 2 ** i),
-                enumerate(BHB_Entry.history),
-                0)
-
-    def __init__(self):
-        self.entries = {}
-
-    def getPrediction(self, branch_pc, BHB_Entry):
-        pattern_idx = self.bitStringToInteger(BHB_Entry)
-        if branch_pc not in self.entries.keys():
-            self.entries[branch_pc] = self.PatternHistoryTableEntry()
-        BHT_entry = self.entries[branch_pc]
-        return BHT_entry.taken[pattern_idx]
-
-    def update(self, branch_pc, BHB_Entry, taken):
-        pattern_idx = self.bitStringToInteger(BHB_Entry)
-        self.entries[branch_pc].update(pattern_idx, taken)
-
-    def __str__(self):
-        return toString(self.entries.items())
-
-    def __repr__(self):
-        return self.__str__()
+    @abc.abstractmethod
+    def updatePrediction(branch_pc, branch_inst_seq_id, taken):
+        pass
 
 
-class RegisterAddressStackCheckpoint(object):
-
-    def __init__(self):
-        self.entries = {}
-
-    def saveCheckpoint(self, inst_seq_id, RAS):
-        self.entries[inst_seq_id] = list(RAS)
-
-    def retrieveCheckpoint(self, inst_seq_id):
-        RAS_Checkpoint = self.entries[inst_seq_id]
-        del self.entries[inst_seq_id]
-        return RAS_Checkpoint
-
-def getLatestBranchHistory(branch_pc, STATE):
-    BHB_Entry = STATE.BHB.getBranchHistory(branch_pc)
-    return BHB_Entry.history[-1]
-
-def makePrediction(branch_pc, STATE):
-    # Get prediction OR
-    # create Branch History Buffer (BHB) and Pattern History Table (PHT) entries AND predict FALSE
-    # i.e. all conditionals are not taken
-    BHB_Entry = STATE.BHB.getBranchHistory(branch_pc)
-    taken = STATE.PHT.getPrediction(branch_pc, BHB_Entry)
-    return taken
-
-def updatePrediction(branch_pc, taken, STATE):
-    # Update Branch History Buffer
-    STATE.BHB.update(branch_pc, taken)
-    # Update Pattern History Table
-    BHB_Entry = STATE.BHB.getBranchHistory(branch_pc)
-    STATE.PHT.update(branch_pc, BHB_Entry, taken)
 
 ################# Branch Target Address and Branch Target Instruction Manipulation ####################
 
@@ -217,8 +111,19 @@ class BranchTargetInstructionCache(object):
     def __repr__(self):
         return self.__str__()
 
+############# RETURN ADDRESS PREDICTION ###################
+class RegisterAddressStackCheckpoint(object):
 
+    def __init__(self):
+        self.entries = {}
 
+    def saveCheckpoint(self, inst_seq_id, RAS):
+        self.entries[inst_seq_id] = list(RAS)
+
+    def retrieveCheckpoint(self, inst_seq_id):
+        RAS_Checkpoint = self.entries[inst_seq_id]
+        del self.entries[inst_seq_id]
+        return RAS_Checkpoint
 
 
 

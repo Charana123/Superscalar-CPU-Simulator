@@ -1,6 +1,5 @@
 from util import toString
 from consts import COND_BRANCH_OPCODES
-from branch_prediction import makePrediction, updatePrediction
 from functional import alll, anyy
 import numpy as np
 import abc
@@ -287,14 +286,15 @@ class BU(BaseUnit):
     def compute(self, STATE, inputt):
         if inputt["opcode"] in COND_BRANCH_OPCODES:
             branch_pc = inputt["pc"]
-            taken = makePrediction(branch_pc, STATE)
+            branch_inst_seq_id = inputt["inst_seq_id"]
+            taken = STATE.BP.getLatestSpeculativeBranchHistory(branch_pc, branch_inst_seq_id)
             if((inputt["opcode"] == "beq" and inputt["src1"] == inputt["src2"]) or
                 (inputt["opcode"] == "bne" and inputt["src1"] != inputt["src2"]) or
                 (inputt["opcode"] == "bgt" and inputt["src1"] > inputt["src2"]) or
                 (inputt["opcode"] == "bge" and inputt["src1"] >= inputt["src2"]) or
                 (inputt["opcode"] == "blt" and inputt["src1"] < inputt["src2"]) or
                 (inputt["opcode"] == "ble" and inputt["src1"] <= inputt["src2"])):
-                updatePrediction(branch_pc, True, STATE)
+                STATE.BP.updatePrediction(branch_pc, branch_inst_seq_id, True)
                 output = {
                     "inst_seq_id": inputt["inst_seq_id"],
                     "ttype": "branch",
@@ -304,8 +304,9 @@ class BU(BaseUnit):
                 (inputt["opcode"] == "bne" and not(inputt["src1"] != inputt["src2"])) or
                 (inputt["opcode"] == "bgt" and not(inputt["src1"] > inputt["src2"])) or
                 (inputt["opcode"] == "bge" and not(inputt["src1"] >= inputt["src2"])) or
+                (inputt["opcode"] == "blt" and not (inputt["src1"] < inputt["src2"])) or
                 (inputt["opcode"] == "ble" and not(inputt["src1"] <= inputt["src2"]))):
-                updatePrediction(branch_pc, False, STATE)
+                STATE.BP.updatePrediction(branch_pc, branch_inst_seq_id, False)
                 output = {
                     "inst_seq_id": inputt["inst_seq_id"],
                     "ttype": "branch",

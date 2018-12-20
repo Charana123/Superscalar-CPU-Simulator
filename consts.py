@@ -23,7 +23,6 @@ DIV_OPCODES = ["div", "mod"]
 LOAD_STORE_OPCODES = ["lw", "sw"]
 COND_BRANCH_OPCODES = ["beq", "bne", "bgt", "bge", "blt", "ble"]
 UNCOND_JUMP_OPCODES = ["j", "jal"]
-N_BIT_HISTORY = 2
 
 VALU_OPCODES = ["vadd", "vaddi", "vsub", "vsubi", "vcmpeq", "vcmpgt", "vcmplt"]
 VOTHER_OPCODES = ["vblend"]

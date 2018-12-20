@@ -3,8 +3,11 @@ import numpy as np
 from frontend_components import InstructionQueue, ReseravationStation, RegisterAliasTable
 from backend_components import ReorderBuffer, LoadStoreQueue, CommonDataBus
 from execution_units import ALU, MU, DU, LSU, BU, VDU, VMU, VALU, VLSU
-from branch_prediction import BranchTargetAddressCache, BranchTargetInstructionCache, LocalBranchHistoryBuffers, PatternHistoryTables, RegisterAddressStackCheckpoint
+from branch_prediction import BranchTargetAddressCache, BranchTargetInstructionCache, RegisterAddressStackCheckpoint
 from consts import REGISTER_MNEMONICS, VECTOR_REGISTER_MNEMONICS, VECTOR_LENGTH
+from static_predictor import StaticPredictor
+from local_two_level_adaptive_predictor import LocalTwoLevelAdaptivePredictor
+from saturating_counter_predictor import SaturatingCounterPredictor
 
 class State(object):
 
@@ -59,11 +62,19 @@ class State(object):
         self.INSTRUCTION_QUEUE = InstructionQueue()
         self.CDB = CommonDataBus(self)
 
+        # Target caching
         self.BTAC = BranchTargetAddressCache()
         self.BTIC = BranchTargetInstructionCache()
-        self.BHB = LocalBranchHistoryBuffers()
-        self.PHT = PatternHistoryTables()
+        # Return branch predictor
         self.RASC = RegisterAddressStackCheckpoint()
+
+        PREDICTION_MECHANISM = 3
+        if PREDICTION_MECHANISM == 1:
+            self.BP = StaticPredictor()
+        elif PREDICTION_MECHANISM == 2:
+            self.BP = SaturatingCounterPredictor()
+        elif PREDICTION_MECHANISM == 3:
+            self.BP = LocalTwoLevelAdaptivePredictor()
 
 
     def getRegisterValue(self, key):
@@ -79,6 +90,8 @@ class State(object):
             self.VECTOR_REGISTER_FILE[VECTOR_REGISTER_MNEMONICS[key]] = value
         else:
             self.REGISTER_FILE[REGISTER_MNEMONICS[key]] = value
+
+
 
 
 

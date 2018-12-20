@@ -90,8 +90,8 @@ class Debugger(object):
         print "### Instructions that finish this cycle are placed in the PIPELINE"
         print "Writeback Instruction: %s" % toString(self.STATE.PIPELINE["writeback"])
         print "### Update branch history and pattern table"
-        self.printBHB()
-        self.printPHT()
+        # self.printBHB()
+        # self.printPHT()
 
     def printWriteback(self):
         print "========= Writeback ========"

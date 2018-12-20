@@ -4,7 +4,7 @@ sw $ra $sp c0
 addi $sp $sp c1
 # main
 li $s0 c0
-li $a0 c5
+li $a0 c20
 # jump to 'rec'
 jal rec
 # load $ra from stack
