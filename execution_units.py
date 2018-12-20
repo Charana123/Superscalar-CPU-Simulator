@@ -11,7 +11,7 @@ class BaseUnit(object):
 
     def __str__(self):
         return toString({
-            "OCCUPIED": self.isOccupied(None),
+            # "OCCUPIED": self.isOccupied(None),
             "FINISHED": self.isFinished(),
             "CYCLES_PER_OPERATION": self.CYCLES_PER_OPERATION,
             "output": self.output
@@ -30,12 +30,16 @@ class BaseUnit(object):
             self.output[0] = inputt
 
     def isOccupied(self, STATE):
-        if STATE is not None and STATE.PIPELINED_EXECUTION_UNITS:
-            return anyy(lambda elem: elem is not None, self.output)
+        if not STATE.PIPELINED_EXECUTION_UNITS:
+            x = anyy(lambda elem: elem is not None, self.output)
+            print("fuck", x)
+            return x
         else:
             if self.output[0] is not None:
+                print("fuck2", True)
                 return True
             else:
+                print("fuck2", False)
                 return False
 
     def isFinished(self):
@@ -47,6 +51,7 @@ class BaseUnit(object):
     def getOutput(self):
         output = self.output[self.CYCLES_PER_OPERATION-1]
         self.output[self.CYCLES_PER_OPERATION-1] = None
+        print("self.outputoutput", self.output)
         return output
 
     @abc.abstractmethod
@@ -75,18 +80,22 @@ class MU(BaseUnit):
 
     def step(self, STATE):
 
+        if self.CYCLES_PER_OPERATION > 1:
+            print("self.output", self.output)
+            if self.output[self.CYCLES_PER_OPERATION-1] is None and self.output[self.CYCLES_PER_OPERATION-2] is not None:
+                inputt = self.output[self.CYCLES_PER_OPERATION-2]
+                output = self.compute(inputt)
+                print("xoutput", output)
+                self.output[self.CYCLES_PER_OPERATION-1] = output
+                self.output[self.CYCLES_PER_OPERATION-2] = None
+
         if self.CYCLES_PER_OPERATION > 2:
-            for i in range(0, self.CYCLES_PER_OPERATION-2):
+            for i in range(self.CYCLES_PER_OPERATION-3, -1, -1):
                 if self.output[i+1] is None:
                     self.output[i+1] = self.output[i]
                     self.output[i] = None
 
-        if self.CYCLES_PER_OPERATION > 1:
-            if self.output[self.CYCLES_PER_OPERATION-1] is None and self.output[self.CYCLES_PER_OPERATION-2] is not None:
-                inputt = self.output[self.CYCLES_PER_OPERATION-2]
-                output = self.compute(inputt)
-                self.output[self.CYCLES_PER_OPERATION-1] = output
-                self.output[self.CYCLES_PER_OPERATION-2] = None
+        print("lol", self.output)
 
     def compute(self, inputt):
         if inputt["opcode"] == "mul":

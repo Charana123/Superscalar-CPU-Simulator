@@ -21,7 +21,7 @@ sw $s4 $s0 $s4
 sw $s4 $s1 $s4
 # i++
 addi $s4 $s4 c1
-bge $s4 $s3 exit
+bge $s4 $s3 setup
 j initloop
 
 setup:

@@ -34,22 +34,22 @@ class State(object):
         # Basic Operations
         self.DUs = [DU()]
         self.DU_RS = ReseravationStation(self.DUs, size=8)
-        self.MUs = [MU(), MU()]
+        self.MUs = [MU()]
         self.MU_RS = ReseravationStation(self.MUs, size=12)
-        self.ALUs = [ALU(), ALU(), ALU(), ALU()]
+        self.ALUs = [ALU(), ALU()]
         self.ALU_RS = ReseravationStation(self.ALUs, size=16)
         self.BUs = [BU()]
         self.BU_RS = ReseravationStation(self.BUs, size=8)
-        self.LSUs = [LSU(), LSU()]
+        self.LSUs = [LSU()]
         self.LSU_RS = ReseravationStation(self.LSUs, size=12)
         # Vector Operations
         self.VDUs = [VDU()]
         self.VDU_RS = ReseravationStation(self.VDUs, size=8)
-        self.VMUs = [VMU(), VMU()]
+        self.VMUs = [VMU()]
         self.VMU_RS = ReseravationStation(self.VMUs, size=12)
-        self.VALUs = [VALU(), VALU(), VALU(), VALU()]
+        self.VALUs = [VALU(), VALU()]
         self.VALU_RS = ReseravationStation(self.VALUs, size=16)
-        self.VLSUs = [VLSU(), VLSU()]
+        self.VLSUs = [VLSU()]
         self.VLSU_RS = ReseravationStation(self.VLSUs, size=12)
 
 
@@ -70,18 +70,18 @@ class State(object):
         self.RASC = RegisterAddressStackCheckpoint()
 
 
-    def setFlags(self, prediction_mechanism=None, n_way_superscalar=None, pipelined_execution_units=True):
+    def setFlags(self, prediction_mechanism, n_way_superscalar, pipelined_execution_units):
         # Set Branch Prediction Mechanism
         if prediction_mechanism is not None:
             self.PREDICTION_MECHANISM = prediction_mechanism
         else:
             self.PREDICTION_MECHANISM = 3
 
-        if self.PREDICTION_MECHANISM == 1:
+        if self.PREDICTION_MECHANISM == 'static':
             self.BP = StaticPredictor()
-        elif self.PREDICTION_MECHANISM == 2:
+        elif self.PREDICTION_MECHANISM == '1-level-dynamic':
             self.BP = SaturatingCounterPredictor()
-        elif self.PREDICTION_MECHANISM == 3:
+        elif self.PREDICTION_MECHANISM == '2-level-dynamic':
             self.BP = LocalTwoLevelAdaptivePredictor()
 
         # N-WAY superscalar
@@ -91,7 +91,7 @@ class State(object):
             self.N_WAY_SUPERSCALAR = 4
 
         # Pipeline Execution Units
-        self.PIPELINED_EXECUTION_UNITS = pipelined_execution_units
+        self.PIPELINED_EXECUTION_UNITS = True
 
 
     def getRegisterValue(self, key):

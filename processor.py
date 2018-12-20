@@ -6,6 +6,7 @@ from state import State
 from util import getNextUUID, toString
 from consts import ALU_OPCODES, MUL_OPCODES, DIV_OPCODES, LOAD_STORE_OPCODES, COND_BRANCH_OPCODES, UNCOND_JUMP_OPCODES, VALU_OPCODES, VMUL_OPCODES, VDIV_OPCODES, VLSU_OPCODES, VOTHER_OPCODES
 from debugger import Debugger
+import argparse
 
 def run():
     global STATE
@@ -299,8 +300,6 @@ def execute():
     fin_fus = sorted(fin_fus, key=lambda writeback: fu_sort(writeback.ttype))
     highest_prorioty_fus = fin_fus[:STATE.N_WAY_SUPERSCALAR]
     STATE.PIPELINE["writeback"] = [fu.getOutput() for fu in highest_prorioty_fus]
-    for fu in highest_prorioty_fus:
-        fu.flush()
 
 
 def writeback():
@@ -350,8 +349,16 @@ def runProgram():
 if __name__ == "__main__":
     global STATE
     filename = sys.argv[1]
+
+    parser = argparse.ArgumentParser(description='Process some integers.')
+    parser.add_argument('program', metavar='PROGRAM', type=str, help='file of program to run')
+    parser.add_argument('--nway', dest='n_way_superscalar', action='store', type=int, default=4, help='specifiy n in n-way superscalar')
+    parser.add_argument('--pipelined-execution-units', dest='pipelined_execution_units', action='store', type=bool, default=True, help='pipeline or don\'t pipeline execution units')
+    parser.add_argument('--prediction-mechanism', dest='prediction_mechanism', action='store', type=str, default='2-level-dynamic', help='specify prediction mechanism')
+    args = parser.parse_args()
+
     STATE = State(filename)
-    STATE.setFlags()
+    STATE.setFlags(args.prediction_mechanism, args.n_way_superscalar, args.pipelined_execution_units)
     runProgram()
 
 
