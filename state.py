@@ -19,7 +19,7 @@ class State(object):
         self.INCREMENT = 4
         self.REGISTER_FILE = [0] * len(REGISTER_MNEMONICS)
         self.VECTOR_REGISTER_FILE = [np.zeros(VECTOR_LENGTH, dtype=int)] * len(VECTOR_REGISTER_MNEMONICS)
-        self.STACK = [0] * 100
+        self.STACK = [0] * 1000
         self.PIPELINE_STALLED = False
         self.PIPELINE = {
             "decode": [],

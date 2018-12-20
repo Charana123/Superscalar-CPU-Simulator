@@ -1,6 +1,6 @@
 from util import toString, getNextUUID
 from consts import REGISTER_MNEMONICS, VECTOR_LENGTH, ALU_OPCODES, MUL_OPCODES, DIV_OPCODES, VALU_OPCODES, VMUL_OPCODES, VDIV_OPCODES, VOTHER_OPCODES
-from functional import first, generate, alll
+from functional import first, generate, anyy
 from branch_prediction import getBTIAC
 import numpy as np
 import abc
@@ -359,7 +359,7 @@ class LoadStoreQueue(CircularBuffer):
         else:
 	    if retire_lsq_entry.isVectorOperation:
                 print("xxx", retire_lsq_entry.Value)
-		mem_violation = alll(lambda i: retire_lsq_entry.Value[i] != STATE.STACK[retire_lsq_entry.Address + i], range(VECTOR_LENGTH))
+		mem_violation = anyy(lambda i: retire_lsq_entry.Value[i] != STATE.STACK[retire_lsq_entry.Address + i], range(VECTOR_LENGTH))
 	    else:
 		mem_violation = retire_lsq_entry.Value != STATE.STACK[retire_lsq_entry.Address]
             if mem_violation:
