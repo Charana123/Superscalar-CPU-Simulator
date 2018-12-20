@@ -59,6 +59,7 @@ class ReorderBuffer(CircularBuffer):
 
         def __init__(self):
             self.inst_seq_id = None  # Sequence ID of instruction
+            self.isVectorOperation = None
             self.pc = None  # PC of instruction
             self.op_type = None  # To distinguish rtypes, loads, stores, jumps and branches
             self.Valid = None  # Whether there exists a valid value in the ROB Entry
@@ -127,12 +128,15 @@ class ReorderBuffer(CircularBuffer):
         vacant_rob_entry = self.entries[self.issue_ptr]
         vacant_rob_entry.inst_seq_id = inst["inst_seq_id"]
         vacant_rob_entry.pc = inst["pc"]
+        vacant_rob_entry.isVectorOperation = False
         vacant_rob_entry.Valid = False
         vacant_rob_entry.Value = None
         print("inst[opcode]", inst["opcode"])
         if inst["opcode"] in ALU_OPCODES + MUL_OPCODES + DIV_OPCODES + VALU_OPCODES + VMUL_OPCODES + VDIV_OPCODES + VOTHER_OPCODES:
             vacant_rob_entry.op_type = "r_type"
             vacant_rob_entry.Areg = inst["arg1"]
+            if inst["opcode"] in VALU_OPCODES + VMUL_OPCODES + VDIV_OPCODES + VOTHER_OPCODES:
+                vacant_rob_entry.isVectorOperation = True
         elif inst["opcode"] == "jal":
             vacant_rob_entry.op_type = "r_type"
             vacant_rob_entry.Areg = "$ra"
@@ -142,10 +146,12 @@ class ReorderBuffer(CircularBuffer):
                 vacant_rob_entry.op_type = "load"
             if inst["opcode"] == "sw":
                 vacant_rob_entry.op_type = "store"
-            if inst["opcode"] == "vload":
-                vacant_rob_entry.op_type = "vector_load"
-            if inst["opcode"] == "vstore":
-                vacant_rob_entry.op_type = "vector_store"
+            if inst["opcode"] in ["vload", "vstore"]:
+                vacant_rob_entry.isVectorOperation = True
+                if inst["opcode"] == "vload":
+                    vacant_rob_entry.op_type = "vector_load"
+                if inst["opcode"] == "vstore":
+                    vacant_rob_entry.op_type = "vector_store"
         elif inst["opcode"] == "syscall":
             vacant_rob_entry.op_type = "syscall"
         elif inst["opcode"] in ["beq", "bne", "bgt", "bge", "blt", "ble"]:
@@ -169,9 +175,6 @@ class ReorderBuffer(CircularBuffer):
             super(ReorderBuffer.SyscallExit, self).__init__("SYSCALL Exit")
 
     def commit_impl(self, STATE):
-
-        # Instruction is retired
-        STATE.RETIRED_INSTRUCTIONS += 1
 
         retire_rob_entry = self.entries[self.commit_ptr]
         if retire_rob_entry.op_type in ["vector_load", "vector_store", "load", "store"]:
@@ -224,7 +227,7 @@ class ReorderBuffer(CircularBuffer):
             else:
                 STATE.setRegisterValue(retire_rob_entry.Areg, retire_rob_entry.Value)
                 STATE.RAT.commit(retire_rob_entry.inst_seq_id)
-                # print "REGISTER_FILE[REGISTER_MNEMONICS[%s]] = %d" % (retire_rob_entry.Areg, retire_rob_entry.Value)
+                print "REGISTER_FILE[REGISTER_MNEMONICS[%s]] = %d" % (retire_rob_entry.Areg, retire_rob_entry.Value)
                 return True
         if retire_rob_entry.op_type == "noop":
             return True
@@ -232,7 +235,14 @@ class ReorderBuffer(CircularBuffer):
             raise ReorderBuffer.SyscallExit
 
     def commit(self, STATE):
-        return super(ReorderBuffer, self).commit(STATE)
+        ok = super(ReorderBuffer, self).commit(STATE)
+        if ok:
+            retire_rob_entry = self.entries[self.commit_ptr]
+            if retire_rob_entry.isVectorOperation:
+                STATE.RETIRED_INSTRUCTIONS += 4
+            else:
+                STATE.RETIRED_INSTRUCTIONS += 1
+        return ok
 
 
 class LoadStoreQueue(CircularBuffer):
@@ -354,7 +364,7 @@ class LoadStoreQueue(CircularBuffer):
 		    STATE.STACK[retire_lsq_entry.Address + i] = retire_lsq_entry.Value[i]
 	    else:
 		STATE.STACK[retire_lsq_entry.Address] = retire_lsq_entry.Value
-            # print "STACK[%s] = %d" % (retire_lsq_entry.Address, retire_lsq_entry.Value)
+            print "STACK[%s] = %d" % (retire_lsq_entry.Address, retire_lsq_entry.Value)
             return True
         else:
 	    if retire_lsq_entry.isVectorOperation:

@@ -244,7 +244,7 @@ class ReseravationStation(object):
 
     def dispatch(self, STATE):
         # Check if any functional/execution units are available to dispatch
-        FU = first(lambda fu: not fu.isOccupied(), self.functional_units)
+        FU = first(lambda fu: not fu.isOccupied(STATE), self.functional_units)
         if FU is None:
             return
         # Filter all RS Entries whos instruction is ready to be dispatched

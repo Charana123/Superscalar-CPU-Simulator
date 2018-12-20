@@ -41,7 +41,7 @@ def runCycle():
     STATE.TOTAL_CYCLES += 1
     if not STATE.PIPELINE_STALLED:
         STATE.PC += STATE.INCREMENT
-        STATE.INCREMENT = 4
+        STATE.INCREMENT = STATE.N_WAY_SUPERSCALAR
     return False
 
 def fetch():
@@ -54,7 +54,7 @@ def fetch():
         # If seen [j,jal] encountered, continue fetching from there
         # Instructions beyond branches, unseen relative unconditionals, indirect unconditionals are still fetched (if EOF isn't reached) and should be removed
     i = 0
-    while len(STATE.PIPELINE["decode"]) != 4:
+    while len(STATE.PIPELINE["decode"]) != STATE.N_WAY_SUPERSCALAR:
         # Stall the pipeline if end of function/file reached
         if STATE.PC+i >= len(STATE.PROGRAM) or not isinstance(STATE.PROGRAM[STATE.PC+i], dict):
             STATE.PIPELINE_STALLED = True
@@ -76,7 +76,7 @@ def fetch():
             TAI = getBTIAC(inst["pc"], STATE)
             if TAI is not None:
                 TA, TI = TAI
-                STATE.INCREMENT = 4 - (i + 1)
+                STATE.INCREMENT = STATE.N_WAY_SUPERSCALAR - (i + 1)
                 STATE.PC = TA + 1 # Continues fetching from TA + 2 onward
                 i = 0
                 TI["inst_seq_id"] = getNextUUID()
@@ -90,7 +90,7 @@ def fetch():
                         STATE.UNSTORED_JALS += 1
                         STATE.INSTRUCTION_QUEUE.push(inst)
                 else:
-                    STATE.RETIRED_INSTRUCTIONS += 1 # No ROB entry for jump
+                    STATE.RETIRED_INSTRUCTIONS += 1
             else:
                 STATE.PIPELINE["decode"].append(inst)
                 STATE.PCS.append(inst["pc"])
@@ -203,7 +203,7 @@ def decode():
 def issue():
     global STATE
 
-    for _ in range(4):
+    for _ in range(STATE.N_WAY_SUPERSCALAR):
         inst = STATE.INSTRUCTION_QUEUE.peek()
         # Skip is Instruction Queue in empty
         if inst is None:
@@ -257,7 +257,7 @@ def issue():
 def dispatch():
     global STATE
 
-    for _ in range(4):
+    for _ in range(STATE.N_WAY_SUPERSCALAR):
         # go through reservation stations and call the dipatch instruction
         for rs in [STATE.ALU_RS, STATE.MU_RS, STATE.DU_RS, STATE.LSU_RS, STATE.BU_RS, STATE.VALU_RS, STATE.VMU_RS, STATE.VDU_RS, STATE.VLSU_RS]:
             rs.dispatch(STATE)
@@ -297,7 +297,7 @@ def execute():
         if fu_ttype == "bu":
             return 9
     fin_fus = sorted(fin_fus, key=lambda writeback: fu_sort(writeback.ttype))
-    highest_prorioty_fus = fin_fus[:4]
+    highest_prorioty_fus = fin_fus[:STATE.N_WAY_SUPERSCALAR]
     STATE.PIPELINE["writeback"] = [fu.getOutput() for fu in highest_prorioty_fus]
     for fu in highest_prorioty_fus:
         fu.flush()
@@ -318,7 +318,7 @@ def writeback():
 def commit():
     global STATE
 
-    for _ in range(4):
+    for _ in range(STATE.N_WAY_SUPERSCALAR):
         # Commit next entry of ROB (and optionally the ROB) to the architectural state (memory and register file)
         try:
             STATE.ROB.commit(STATE)
@@ -341,15 +341,18 @@ def commit():
             return True
     return False
 
-def runProgram(filename):
-    global STATE
-    STATE = State(filename)
 
-    # run()
+def runProgram():
+    global STATE
     Debugger(STATE, runCycle).run()
 
+
 if __name__ == "__main__":
-    runProgram(sys.argv[1])
+    global STATE
+    filename = sys.argv[1]
+    STATE = State(filename)
+    STATE.setFlags()
+    runProgram()
 
 
 

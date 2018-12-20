@@ -17,6 +17,7 @@ class State(object):
         self.TOTAL_CYCLES = 0
         self.PC = 0
         self.INCREMENT = 4
+        self.N_WAY_SUPERSCALAR = 4
         self.REGISTER_FILE = [0] * len(REGISTER_MNEMONICS)
         self.VECTOR_REGISTER_FILE = [np.zeros(VECTOR_LENGTH, dtype=int)] * len(VECTOR_REGISTER_MNEMONICS)
         self.STACK = [0] * 1000
@@ -68,13 +69,29 @@ class State(object):
         # Return branch predictor
         self.RASC = RegisterAddressStackCheckpoint()
 
-        PREDICTION_MECHANISM = 3
-        if PREDICTION_MECHANISM == 1:
+
+    def setFlags(self, prediction_mechanism=None, n_way_superscalar=None, pipelined_execution_units=True):
+        # Set Branch Prediction Mechanism
+        if prediction_mechanism is not None:
+            self.PREDICTION_MECHANISM = prediction_mechanism
+        else:
+            self.PREDICTION_MECHANISM = 3
+
+        if self.PREDICTION_MECHANISM == 1:
             self.BP = StaticPredictor()
-        elif PREDICTION_MECHANISM == 2:
+        elif self.PREDICTION_MECHANISM == 2:
             self.BP = SaturatingCounterPredictor()
-        elif PREDICTION_MECHANISM == 3:
+        elif self.PREDICTION_MECHANISM == 3:
             self.BP = LocalTwoLevelAdaptivePredictor()
+
+        # N-WAY superscalar
+        if n_way_superscalar is not None:
+            self.N_WAY_SUPERSCALAR = n_way_superscalar
+        else:
+            self.N_WAY_SUPERSCALAR = 4
+
+        # Pipeline Execution Units
+        self.PIPELINED_EXECUTION_UNITS = pipelined_execution_units
 
 
     def getRegisterValue(self, key):

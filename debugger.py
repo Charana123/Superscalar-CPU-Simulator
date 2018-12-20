@@ -145,7 +145,7 @@ class Debugger(object):
         print "Busy - BU RS: %s" % toString(self.STATE.BU_RS)
 
     def printExecutionUnits(self):
-        busy = lambda fus: filter(lambda fu: fu.isOccupied(), fus)
+        busy = lambda fus: filter(lambda fu: fu.isOccupied(self.STATE), fus)
         print "Busy - ALU: %s" % toString(busy(self.STATE.ALUs))
         print "Busy - ALU: %s" % toString(busy(self.STATE.MUs))
         print "Busy - ALU: %s" % toString(busy(self.STATE.DUs))

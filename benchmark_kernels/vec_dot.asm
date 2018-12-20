@@ -5,7 +5,7 @@ li $s0 c100
 li $s1 c200
 li $s2 c300
 # int N = 64
-li $s3 c64
+li $s3 c8
 j init
 
 init:
@@ -38,10 +38,12 @@ j loop
 # }
 loop:
 # c[i] = a[i] * b[i]
-vload $vr0 $s0 $s4
-vload $vr1 $s1 $s4
-vmul $vr2 $vr0 $vr1
-vstore $vr2 $s2 $s4
+# vload $vr0 $s0 $s4
+# vload $vr1 $s1 $s4
+# vmul $vr2 $vr0 $vr1
+# vstore $vr2 $s2 $s4
+vli $vr0 $s4
+vstore $vr0 $s2 $s4
 # i--; i >= 0
 addi $s4 $s4 c4
 bge $s4 $s3 exit
@@ -52,11 +54,3 @@ exit:
 # Set return and return
 li $v0 c0
 jr $ra
-
-
-
-
-
-
-
-

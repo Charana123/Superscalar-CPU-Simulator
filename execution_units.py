@@ -11,7 +11,7 @@ class BaseUnit(object):
 
     def __str__(self):
         return toString({
-            "OCCUPIED": self.isOccupied(),
+            "OCCUPIED": self.isOccupied(None),
             "FINISHED": self.isFinished(),
             "CYCLES_PER_OPERATION": self.CYCLES_PER_OPERATION,
             "output": self.output
@@ -29,11 +29,14 @@ class BaseUnit(object):
         else:
             self.output[0] = inputt
 
-    def isOccupied(self):
-        if self.output[0] is not None:
-            return True
+    def isOccupied(self, STATE):
+        if STATE is not None and STATE.PIPELINED_EXECUTION_UNITS:
+            return anyy(lambda elem: elem is not None, self.output)
         else:
-            return False
+            if self.output[0] is not None:
+                return True
+            else:
+                return False
 
     def isFinished(self):
         if self.output[-1] is not None:

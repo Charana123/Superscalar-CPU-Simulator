@@ -1,20 +1,42 @@
 main:
 # Load s0,s1,s2 with the heap addresses of vectors a,b,c
-li $s0 c30
-li $s1 c31
-li $s2 c32
+li $s0 c100
+li $s1 c200
+li $s2 c300
 # Copy vector length into s2
 li $s3 c4
-# Loop counter
-li $s4 c0
 # Loop max
-li $s5 c1
+li $s5 c64
 j loop
+
+init:
+# int i = 0
+li $s4 c0
+# check loop condition
+bge $s4 $s5 setup
+j initloop
+
+initloop:
+# a[i] = i; b[i] = i
+vli $vr0 $s4
+vstore $vr0 $s0 $s4
+vstore $vr0 $s1 $s4
+# i++
+addi $s4 $s4 c4
+bge $s4 $s5 setup
+j initloop
+
+setup:
+# int i = 0
+li $s4 c0
+# check loop condition
+bge $s4 $s5 setup
+j loop
+
 
 # for (int i = 0; i < N; j++){
 #   c[i] = b[i] + 5 * a[i];
 # }
-
 loop:
 # move scalar '5' to vector register 'vr1'
 vli $vr0 c5
