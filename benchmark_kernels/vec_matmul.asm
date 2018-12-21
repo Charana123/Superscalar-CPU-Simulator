@@ -17,10 +17,11 @@ j initloop
 
 initloop:
 # a[i] = i; b[i] = i
-sw $t0 $s0 $t0
-sw $t0 $s1 $t0
+vli $vr0 $t0
+vstore $vr0 $s0 $t0
+vstore $vr0 $s1 $t0
 # temp++; if temp > N; break
-addi $t0 $t0 c1
+addi $t0 $t0 c4
 bge $t0 $s7 setup
 j initloop
 
@@ -49,7 +50,7 @@ j matmul
 # }
 matmul:
 # load a[i*N+k]
-mul $t2 $s4 $s3
+vmul $t2 $s4 $s3
 add $t2 $t2 $s6
 lw $t3 $s0 $t2
 # load b[k*N+j]
