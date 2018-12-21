@@ -2,6 +2,7 @@ from util import toString
 from consts import COND_BRANCH_OPCODES
 from functional import alll, anyy
 import numpy as np
+from random import randint
 import abc
 
 class BaseUnit(object):
@@ -351,6 +352,10 @@ class BU(BaseUnit):
             }
             if inputt["syscall_type"] == 10:
                 output["syscall_type"] = "exit"
+            if inputt["syscall_type"] == 44:
+                STATE.PIPELINE_STALLED = False
+		STATE.setRegisterValue("$f0", randint(0, 100))
+                output["syscall_type"] = "random"
         else:
             print("invalid BU op")
             exit()

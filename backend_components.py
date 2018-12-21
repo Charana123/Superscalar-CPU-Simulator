@@ -122,7 +122,9 @@ class ReorderBuffer(CircularBuffer):
     def writeback_syscall(self, inst_seq_id, syscall_type):
         entry = self.findROBEntry(inst_seq_id)
         entry.Valid = True
+        print("xentry.syscall_type", syscall_type)
         entry.Value = syscall_type
+        print("xentry", entry)
 
     def issue_impl(self, STATE, inst):
         vacant_rob_entry = self.entries[self.issue_ptr]
@@ -232,7 +234,12 @@ class ReorderBuffer(CircularBuffer):
         if retire_rob_entry.op_type == "noop":
             return True
         if retire_rob_entry.op_type == "syscall":
-            raise ReorderBuffer.SyscallExit
+            if retire_rob_entry.Value is None:
+                return False
+            elif retire_rob_entry.Value == "exit":
+                raise ReorderBuffer.SyscallExit
+            else:
+                return True
 
     def commit(self, STATE):
         ok = super(ReorderBuffer, self).commit(STATE)
@@ -394,6 +401,7 @@ class CommonDataBus(object):
             pass
         if ttype == "syscall":
             syscall_type = writeback["syscall_type"]
+            print("syscall_type1", syscall_type)
             # Fill ROB entries of syscall instructions
             self.STATE.ROB.writeback_syscall(inst_seq_id, syscall_type)
         if ttype in ["register", "vector_register"]:

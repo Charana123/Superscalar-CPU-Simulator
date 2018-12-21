@@ -11,6 +11,7 @@ REGISTER_MNEMONICS = {
     "$sp": 29,  # stack pointer
     "$fp": 30,  # frame  pointer (used to store prior value of $sp before stack frame is pushed)
     "$ra": 31,  # return address (stores PC on jump and link instruction i.e. jal)
+    "$f0": 32
 }
 
 VECTOR_REGISTER_MNEMONICS = {
